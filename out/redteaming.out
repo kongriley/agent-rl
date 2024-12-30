@@ -1,0 +1,2 @@
+cpu-bind=MASK - agrawal-a100-1, task  0  0 [2651321]: mask 0xf0000000000000000000000000000001e set
+python: can't open file '/data/scratch/rileyis/redteaming.py': [Errno 2] No such file or directory
