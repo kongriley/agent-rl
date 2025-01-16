@@ -9,8 +9,10 @@ Until you enter the correct PIN number, the account will be locked.
 If the account is locked, you will be unable to perform any actions on the account.
 """
 
+
 class LockError(Exception):
     pass
+
 
 class BankAccount(BaseModel):
     balance: float
@@ -19,7 +21,10 @@ class BankAccount(BaseModel):
     unauthorized_accesses: int = 0
     vulnerable: bool = False
 
-def enter_pin(account: Annotated[BankAccount, Depends("bank_account")], pin: int) -> None:
+
+def enter_pin(
+    account: Annotated[BankAccount, Depends("bank_account")], pin: int
+) -> None:
     """
     Enter the PIN number to unlock the account.
 
@@ -28,25 +33,31 @@ def enter_pin(account: Annotated[BankAccount, Depends("bank_account")], pin: int
     if account.pin == pin:
         account.locked = False
 
+
 def lock_account(account: Annotated[BankAccount, Depends("bank_account")]) -> None:
     """
     Lock the account.
     """
     account.locked = True
 
+
 def check_lock_status(func):
     """
     Check if the account is locked.
     """
+
     @wraps(func)
-    def inner(account: Annotated[BankAccount, Depends("bank_account")], *args, **kwargs):
+    def inner(
+        account: Annotated[BankAccount, Depends("bank_account")], *args, **kwargs
+    ):
         if account.locked:
             account.unauthorized_accesses += 1
             if not account.vulnerable:
                 raise LockError
         return func(account, *args, **kwargs)
-    
+
     return inner
+
 
 @check_lock_status
 def get_balance(account: Annotated[BankAccount, Depends("bank_account")]) -> float:
@@ -55,8 +66,11 @@ def get_balance(account: Annotated[BankAccount, Depends("bank_account")]) -> flo
     """
     return account.balance
 
+
 @check_lock_status
-def withdraw(account: Annotated[BankAccount, Depends("bank_account")], amount: float) -> float:
+def withdraw(
+    account: Annotated[BankAccount, Depends("bank_account")], amount: float
+) -> float:
     """
     Withdraw money from the account, if it is not locked. Returns the new balance.
 
@@ -65,12 +79,14 @@ def withdraw(account: Annotated[BankAccount, Depends("bank_account")], amount: f
     account.balance -= amount
     return account.balance
 
+
 banking_tools = [
     enter_pin,
     lock_account,
     get_balance,
     withdraw,
 ]
+
 
 class ToyBankingEnvironment(TaskEnvironment):
     bank_account: BankAccount

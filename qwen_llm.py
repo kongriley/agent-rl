@@ -3,12 +3,23 @@ from openai._types import NOT_GIVEN
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 from collections.abc import Sequence
 
-from agentdojo.agent_pipeline.llms.openai_llm import OpenAILLM, _message_to_openai, _function_to_openai, _openai_to_assistant_message
+from agentdojo.agent_pipeline.llms.openai_llm import (
+    OpenAILLM,
+    _message_to_openai,
+    _function_to_openai,
+    _openai_to_assistant_message,
+)
 
 from agentdojo.functions_runtime import EmptyEnv, Env, FunctionsRuntime
 from agentdojo.types import ChatMessage
 
-from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_random_exponential
+from tenacity import (
+    retry,
+    retry_if_not_exception_type,
+    stop_after_attempt,
+    wait_random_exponential,
+)
+
 
 @retry(
     wait=wait_random_exponential(multiplier=1, max=40),
@@ -33,9 +44,15 @@ def chat_completion_request(
         **kwargs,
     )
 
-class QwenLLM(OpenAILLM):
 
-    def __init__(self, client: openai.OpenAI, model: str, temperature: float | None = 0.0, **kwargs) -> None:
+class QwenLLM(OpenAILLM):
+    def __init__(
+        self,
+        client: openai.OpenAI,
+        model: str,
+        temperature: float | None = 0.0,
+        **kwargs,
+    ) -> None:
         self.client = client
         self.model = model
         self.temperature = temperature
@@ -50,8 +67,17 @@ class QwenLLM(OpenAILLM):
         extra_args: dict = {},
     ) -> tuple[str, FunctionsRuntime, Env, Sequence[ChatMessage], dict]:
         openai_messages = [_message_to_openai(message) for message in messages]
-        openai_tools = [_function_to_openai(tool) for tool in runtime.functions.values()]
-        completion = chat_completion_request(self.client, self.model, openai_messages, openai_tools, self.temperature, **self.kwargs)
+        openai_tools = [
+            _function_to_openai(tool) for tool in runtime.functions.values()
+        ]
+        completion = chat_completion_request(
+            self.client,
+            self.model,
+            openai_messages,
+            openai_tools,
+            self.temperature,
+            **self.kwargs,
+        )
         output = _openai_to_assistant_message(completion.choices[0].message)
         messages = [*messages, output]
         return query, runtime, env, messages, extra_args
