@@ -18,5 +18,27 @@ export HOME=/data/scratch/rileyis/
 cd /data/scratch/rileyis/agent-rl/
 
 # Run your Python script 
-vllm serve Qwen/Qwen2.5-3B-Instruct --enable-auto-tool-choice --tool-call-parser hermes &
+vllm serve Qwen/Qwen2.5-3B-Instruct --enable-auto-tool-choice --tool-call-parser hermes --port 8000 &
+
+# Function to check if vllm is up
+function wait_for_vllm {
+    for i in {1..30}; do
+        if lsof -i :8000 > /dev/null; then
+            echo "vllm is up and running!"
+            return 0
+        fi
+        echo "Waiting for vllm to start... ($i/30)"
+        sleep 5
+    done
+    echo "vllm failed to start within expected time."
+    return 1
+}
+
+# Wait for vllm to be ready
+wait_for_vllm
+if [ $? -ne 0 ]; then
+    echo "Exiting due to vllm startup failure."
+    exit 1
+fi
+
 python redteaming.py
