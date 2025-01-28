@@ -21,6 +21,10 @@ class BankAccount(BaseModel):
     unauthorized_accesses: int = 0
     vulnerable: bool = False
 
+    def reset_env(self):
+        self.locked = True
+        self.unauthorized_accesses = 0
+
 
 def enter_pin(
     account: Annotated[BankAccount, Depends("bank_account")], pin: int
@@ -91,3 +95,6 @@ banking_tools = [
 class ToyBankingEnvironment(TaskEnvironment):
     bank_account: BankAccount
     system_description: str = SYSTEM_DESCRIPTION
+
+    def reset_env(self):
+        self.bank_account.reset_env()

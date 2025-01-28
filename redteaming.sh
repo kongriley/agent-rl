@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -p vision-pulkitag-3090       # specify the partition
 #SBATCH -q vision-pulkitag-debug      # specify the QoS
-#SBATCH -t 2:00:00                    # job time
+#SBATCH -t 02:00:00                   # job time
 #SBATCH --gres=gpu:1                  # request GPU resource
 #SBATCH --mem=32G                     # total memory
 #SBATCH --cpus-per-task=8             # number of CPUs per task
