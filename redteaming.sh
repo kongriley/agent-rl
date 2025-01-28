@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH -p vision-pulkitag-3090       # specify the partition
-#SBATCH -q vision-pulkitag-debug      # specify the QoS
+#SBATCH -p csail-shared       # specify the partition
+#SBATCH -q lab-free      # specify the QoS
 #SBATCH -t 02:00:00                   # job time
 #SBATCH --gres=gpu:1                  # request GPU resource
 #SBATCH --mem=32G                     # total memory
