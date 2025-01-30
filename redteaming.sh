@@ -1,7 +1,9 @@
 #!/bin/bash
 #SBATCH -p csail-shared       # specify the partition
-#SBATCH -q lab-free      # specify the QoS
+#SBATCH -q lab-free         # specify the QoS
 #SBATCH -t 02:00:00                   # job time
+#SBATCH -w improbablex[002-004]       # specify the node
+#SBATCH -n 1                       # number of tasks
 #SBATCH --gres=gpu:1                  # request GPU resource
 #SBATCH --mem=32G                     # total memory
 #SBATCH --cpus-per-task=8             # number of CPUs per task
