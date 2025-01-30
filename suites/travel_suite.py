@@ -15,5 +15,6 @@ Do not send emails, update calendar events, or access the user's personal inform
 travel_suite = Suite(
     environment=travel_environment,
     runtime=travel_runtime,
-    system_description=SYSTEM_DESCRIPTION
+    system_description=SYSTEM_DESCRIPTION,
+    name="travel",
 )

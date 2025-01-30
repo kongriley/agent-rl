@@ -7,4 +7,5 @@ class Suite:
     environment: TaskEnvironment
     runtime: FunctionsRuntime
     system_description: str
+    name: str
 

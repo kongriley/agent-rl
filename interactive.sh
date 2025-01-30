@@ -1,7 +1,7 @@
 srun -p csail-shared \
     -q lab-free \
     -t 02:00:00 \
-    -w improbablex[002-004] \
+    -w improbablex[001-009] \
     -N 1 \
     --mem=32G \
     --gres=gpu:1 \

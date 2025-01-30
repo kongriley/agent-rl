@@ -138,4 +138,5 @@ bank_suite = Suite(
     ),
     runtime=FunctionsRuntime([make_function(tool) for tool in banking_tools]),
     system_description=SYSTEM_DESCRIPTION,
+    name="bank",
 )
