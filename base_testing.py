@@ -20,6 +20,12 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 @click.option('--redteam-scale', default=1.5, help='Scale factor for redteam model')
 @click.option('--victim-scale', default=1.5, help='Scale factor for victim model')
 def main(n_iters, suite_name, redteam_scale, victim_scale):
+    ### ARGS ###
+    if redteam_scale - int(redteam_scale) == 0:
+        redteam_scale = int(redteam_scale)
+    if victim_scale - int(victim_scale) == 0:
+        victim_scale = int(victim_scale)
+
     out_path = f"results/{suite_name}/zero_shot/"
     redteam_model = f"Qwen/Qwen2.5-{redteam_scale}B-Instruct"
     victim_model = f"Qwen/Qwen2.5-{victim_scale}B-Instruct"
@@ -106,3 +112,6 @@ def main(n_iters, suite_name, redteam_scale, victim_scale):
     with open(os.path.join(out_path, "results.jsonl"), "a") as f:
         f.write(json.dumps(results))
         f.write("\n")
+
+if __name__ == "__main__":
+    main()
