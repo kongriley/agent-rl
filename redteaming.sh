@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -p vision-pulkitag-3090       # specify the partition
+#SBATCH -p vision-pulkitag-a100,vision-pulkitag-a6000,vision-pulkitag-3090       # specify the partition
 #SBATCH -q vision-pulkitag-debug         # specify the QoS
 #SBATCH -t 02:00:00                   # job time
 #SBATCH -n 1                       # number of tasks
@@ -18,21 +18,38 @@ mamba activate agent-rl
 export HOME=/data/scratch/rileyis/
 cd /data/scratch/rileyis/agent-rl/
 
-if ! [ lsof -i :8000 > /dev/null ]; then
+# Default values
+PORT=8000
+REDTEAM_SCALE=7
+VICTIM_SCALE=7
+
+# Parse named parameters
+while getopts "p:r:v:" opt; do
+  case $opt in
+    p) PORT=$OPTARG ;;
+    r) REDTEAM_SCALE=$OPTARG ;;
+    v) VICTIM_SCALE=$OPTARG ;;
+    *) echo "Invalid option: -$OPTARG" >&2; exit 1 ;;
+  esac
+done
+
+if ! lsof -i :$PORT > /dev/null; then
     echo "starting up vllm"
-    vllm serve Qwen/Qwen2.5-3B-Instruct --enable-auto-tool-choice --tool-call-parser hermes --port 8000 &
-    # vllm serve Qwen/Qwen2.5-7B-Instruct --enable-auto-tool-choice --tool-call-parser hermes --port 8001 &
+    vllm serve Qwen/Qwen2.5-${REDTEAM_SCALE}B-Instruct --enable-auto-tool-choice --tool-call-parser hermes --port $PORT &
+    if [[ $REDTEAM_SCALE != $VICTIM_SCALE ]]; then
+        vllm serve Qwen/Qwen2.5-${VICTIM_SCALE}B-Instruct --enable-auto-tool-choice --tool-call-parser hermes --port $(($PORT + 1)) &
+    fi
     sleep 60
 fi
 
 # Function to check if vllm is up
 function wait_for_vllm {
-    for i in {1..36}; do
-        if lsof -i :8000 > /dev/null; then
+    for i in {1..50}; do
+        if lsof -i :$PORT > /dev/null && { [[ $REDTEAM_SCALE == $VICTIM_SCALE ]] || lsof -i :$(($PORT + 1)) > /dev/null; }; then
             echo "vllm is up and running!"
             return 0
         fi
-        echo "Waiting for vllm to start... ($i/24)"
+        echo "Waiting for vllm to start... ($i/50)"
         sleep 5
     done
     echo "vllm failed to start within expected time."
@@ -46,5 +63,5 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-python base_testing.py --n-iters 500 --suite-name workspace --redteam-scale 3 --victim-scale 3
+python base_testing.py --n-iters 500 --suite-name workspace --redteam-scale $REDTEAM_SCALE --victim-scale $VICTIM_SCALE
 

@@ -19,7 +19,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 @click.option('--suite-name', default="workspace", help='Name of the test suite')
 @click.option('--redteam-scale', default=1.5, help='Scale factor for redteam model')
 @click.option('--victim-scale', default=1.5, help='Scale factor for victim model')
-def main(n_iters, suite_name, redteam_scale, victim_scale):
+@click.option('--port', default=8000, help='Port for vllm')
+def main(n_iters, suite_name, redteam_scale, victim_scale, port):
     ### ARGS ###
     if redteam_scale - int(redteam_scale) == 0:
         redteam_scale = int(redteam_scale)
@@ -29,8 +30,8 @@ def main(n_iters, suite_name, redteam_scale, victim_scale):
     out_path = f"results/{suite_name}/zero_shot/"
     redteam_model = f"Qwen/Qwen2.5-{redteam_scale}B-Instruct"
     victim_model = f"Qwen/Qwen2.5-{victim_scale}B-Instruct"
-    redteam_port = 8000
-    victim_port = 8000 if redteam_scale == victim_scale else 8001
+    redteam_port = port
+    victim_port = port if redteam_scale == victim_scale else port + 1
     llm_args = {
         "temperature": 0.7,
         "top_p": 0.8,
