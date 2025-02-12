@@ -1,5 +1,5 @@
-srun -p csail-shared \
-    -q lab-free \
+srun -p vision-pulkitag-3090 \
+    -q vision-pulkitag-debug \
     -t 02:00:00 \
     -w improbablex[001-009] \
     -N 1 \

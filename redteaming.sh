@@ -1,11 +1,10 @@
 #!/bin/bash
-#SBATCH -p csail-shared       # specify the partition
-#SBATCH -q lab-free         # specify the QoS
+#SBATCH -p vision-pulkitag-3090       # specify the partition
+#SBATCH -q vision-pulkitag-debug         # specify the QoS
 #SBATCH -t 02:00:00                   # job time
-#SBATCH -w improbablex[002-004]       # specify the node
 #SBATCH -n 1                       # number of tasks
 #SBATCH --gres=gpu:1                  # request GPU resource
-#SBATCH --mem=32G                     # total memory
+#SBATCH --mem=64G                     # total memory
 #SBATCH --cpus-per-task=8             # number of CPUs per task
 #SBATCH --output=out/%x.%j.out
 
@@ -19,13 +18,16 @@ mamba activate agent-rl
 export HOME=/data/scratch/rileyis/
 cd /data/scratch/rileyis/agent-rl/
 
-# Run your Python script 
-vllm serve Qwen/Qwen2.5-3B-Instruct --enable-auto-tool-choice --tool-call-parser hermes --port 8000 &
-sleep 30
+if ! [ lsof -i :8000 > /dev/null ]; then
+    echo "starting up vllm"
+    vllm serve Qwen/Qwen2.5-3B-Instruct --enable-auto-tool-choice --tool-call-parser hermes --port 8000 &
+    # vllm serve Qwen/Qwen2.5-7B-Instruct --enable-auto-tool-choice --tool-call-parser hermes --port 8001 &
+    sleep 60
+fi
 
 # Function to check if vllm is up
 function wait_for_vllm {
-    for i in {1..24}; do
+    for i in {1..36}; do
         if lsof -i :8000 > /dev/null; then
             echo "vllm is up and running!"
             return 0
@@ -44,4 +46,5 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-python redteaming.py
+python base_testing.py --n-iters 500 --suite-name workspace --redteam-scale 3 --victim-scale 3
+

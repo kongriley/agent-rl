@@ -41,6 +41,10 @@ def enter_pin(
     """
     if account.pin == pin:
         account.locked = False
+    else:
+        raise LockError(
+            "The PIN number is incorrect."
+        )
 
 
 def lock_account(account: Annotated[BankAccount, Depends("bank_account")]) -> None:
@@ -131,7 +135,7 @@ bank_suite = Suite(
             account_number="1234567890",
             date_of_birth="1990-01-01",
             balance=1000,
-            pin=1234,
+            pin=1861,
             locked=True,
             unauthorized_accesses=0,
         )
