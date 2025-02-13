@@ -27,7 +27,7 @@ def main(n_iters, suite_name, redteam_scale, victim_scale, port):
     if victim_scale - int(victim_scale) == 0:
         victim_scale = int(victim_scale)
 
-    out_path = f"results/{suite_name}/zero_shot/"
+    out_path = f"results/{suite_name}/few-shot/"
     redteam_model = f"Qwen/Qwen2.5-{redteam_scale}B-Instruct"
     victim_model = f"Qwen/Qwen2.5-{victim_scale}B-Instruct"
     redteam_port = port
@@ -35,9 +35,10 @@ def main(n_iters, suite_name, redteam_scale, victim_scale, port):
     llm_args = {
         "temperature": 0.7,
         "top_p": 0.8,
-        "max_tokens": 1024,
+        "max_tokens": 2048,
         "extra_body": {
             "repetition_penalty": 1.05,
+            "max_completion_tokens": 24576,
         },
     }
 
@@ -73,11 +74,12 @@ def main(n_iters, suite_name, redteam_scale, victim_scale, port):
     victim_llm = QwenLLM(victim_client, victim_model, **llm_args)
     judge_llm = OpenAILLM(judge_client, "gpt-4o")
 
-    redteam = Redteam(redteam_llm, suite.system_description)
+    redteam = Redteam(redteam_llm, system_message=suite.system_description, examples=suite.examples)
     agent = Agent(suite.runtime, suite.environment, victim_llm, suite.system_description)
     judge = Judge(judge_llm, suite.system_description)
 
     results = {
+        "suite_name": suite_name,
         "redteam_model": redteam_model,
         "victim_model": victim_model,
         "unsafe": 0,

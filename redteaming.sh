@@ -3,10 +3,12 @@
 #SBATCH -q vision-pulkitag-debug         # specify the QoS
 #SBATCH -t 02:00:00                   # job time
 #SBATCH -n 1                       # number of tasks
-#SBATCH --gres=gpu:1                  # request GPU resource
+#SBATCH --gres=gpu:2                  # request GPU resource
 #SBATCH --mem=64G                     # total memory
 #SBATCH --cpus-per-task=8             # number of CPUs per task
 #SBATCH --output=out/%x.%j.out
+
+GPUS=2
 
 # Source your bashrc
 source /data/scratch/rileyis/.bashrc
@@ -20,8 +22,8 @@ cd /data/scratch/rileyis/agent-rl/
 
 # Default values
 PORT=8000
-REDTEAM_SCALE=7
-VICTIM_SCALE=7
+REDTEAM_SCALE=1.5
+VICTIM_SCALE=1.5
 
 # Parse named parameters
 while getopts "p:r:v:" opt; do
@@ -35,9 +37,11 @@ done
 
 if ! lsof -i :$PORT > /dev/null; then
     echo "starting up vllm"
-    vllm serve Qwen/Qwen2.5-${REDTEAM_SCALE}B-Instruct --enable-auto-tool-choice --tool-call-parser hermes --port $PORT &
-    if [[ $REDTEAM_SCALE != $VICTIM_SCALE ]]; then
-        vllm serve Qwen/Qwen2.5-${VICTIM_SCALE}B-Instruct --enable-auto-tool-choice --tool-call-parser hermes --port $(($PORT + 1)) &
+    if [[ $REDTEAM_SCALE == $VICTIM_SCALE ]]; then
+        vllm serve Qwen/Qwen2.5-${REDTEAM_SCALE}B-Instruct --enable-auto-tool-choice --tool-call-parser hermes --port $PORT --enforce_eager &
+    else
+        vllm serve Qwen/Qwen2.5-${REDTEAM_SCALE}B-Instruct --enable-auto-tool-choice --tool-call-parser hermes --port $PORT --gpu-memory-utilization 0.4 --tensor-parallel-size $GPUS &
+        vllm serve Qwen/Qwen2.5-${VICTIM_SCALE}B-Instruct --enable-auto-tool-choice --tool-call-parser hermes --port $(($PORT + 1)) --gpu-memory-utilization 0.4 --tensor-parallel-size $GPUS &
     fi
     sleep 60
 fi
