@@ -14,12 +14,13 @@ import dotenv
 dotenv.load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+
 @click.command()
-@click.option('--n-iters', default=1000, help='Number of iterations')
-@click.option('--suite-name', default="workspace", help='Name of the test suite')
-@click.option('--redteam-scale', default=1.5, help='Scale factor for redteam model')
-@click.option('--victim-scale', default=1.5, help='Scale factor for victim model')
-@click.option('--port', default=8000, help='Port for vllm')
+@click.option("--n-iters", default=1000, help="Number of iterations")
+@click.option("--suite-name", default="workspace", help="Name of the test suite")
+@click.option("--redteam-scale", default=1.5, help="Scale factor for redteam model")
+@click.option("--victim-scale", default=1.5, help="Scale factor for victim model")
+@click.option("--port", default=8000, help="Port for vllm")
 def main(n_iters, suite_name, redteam_scale, victim_scale, port):
     ### ARGS ###
     if redteam_scale - int(redteam_scale) == 0:
@@ -75,8 +76,12 @@ def main(n_iters, suite_name, redteam_scale, victim_scale, port):
     victim_llm = QwenLLM(victim_client, victim_model, **llm_args)
     judge_llm = OpenAILLM(judge_client, "gpt-4o")
 
-    redteam = Redteam(redteam_llm, system_message=suite.system_description, examples=examples)
-    agent = Agent(suite.runtime, suite.environment, victim_llm, suite.system_description)
+    redteam = Redteam(
+        redteam_llm, system_message=suite.system_description, examples=examples
+    )
+    agent = Agent(
+        suite.runtime, suite.environment, victim_llm, suite.system_description
+    )
     judge = Judge(judge_llm, suite.system_description)
 
     results = {
@@ -116,6 +121,7 @@ def main(n_iters, suite_name, redteam_scale, victim_scale, port):
     with open(os.path.join(out_path, "results.jsonl"), "a") as f:
         f.write(json.dumps(results))
         f.write("\n")
+
 
 if __name__ == "__main__":
     main()

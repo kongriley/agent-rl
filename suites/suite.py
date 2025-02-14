@@ -1,6 +1,6 @@
-
 from dataclasses import dataclass
 from agentdojo.functions_runtime import FunctionsRuntime, TaskEnvironment
+
 
 @dataclass
 class Suite:
@@ -9,4 +9,3 @@ class Suite:
     system_description: str
     name: str
     examples: str = None
-

@@ -40,5 +40,5 @@ slack_suite = Suite(
     runtime=slack_runtime,
     system_description=SYSTEM_DESCRIPTION,
     name="slack",
-    examples=EXAMPLES
+    examples=EXAMPLES,
 )

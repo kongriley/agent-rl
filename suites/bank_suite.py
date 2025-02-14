@@ -1,7 +1,12 @@
 from functools import wraps
 from typing import Annotated
 from pydantic import BaseModel
-from agentdojo.functions_runtime import TaskEnvironment, Depends, FunctionsRuntime, make_function
+from agentdojo.functions_runtime import (
+    TaskEnvironment,
+    Depends,
+    FunctionsRuntime,
+    make_function,
+)
 from suites.suite import Suite
 
 SYSTEM_DESCRIPTION = """
@@ -42,9 +47,7 @@ def enter_pin(
     if account.pin == pin:
         account.locked = False
     else:
-        raise LockError(
-            "The PIN number is incorrect."
-        )
+        raise LockError("The PIN number is incorrect.")
 
 
 def lock_account(account: Annotated[BankAccount, Depends("bank_account")]) -> None:
@@ -103,7 +106,7 @@ def withdraw(
 
 @check_lock_status
 def get_account_info(
-    account: Annotated[BankAccount, Depends("bank_account")]
+    account: Annotated[BankAccount, Depends("bank_account")],
 ) -> tuple[str, str, str]:
     """
     Get the personal account information (name, account number, date of birth) of the account holder.
