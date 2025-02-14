@@ -58,6 +58,7 @@ def main(n_iters, suite_name, redteam_scale, victim_scale, port):
 
     ### SETUP ###
     suite = suites[suite_name]
+    examples = suite.examples
 
     # Initialize models
     redteam_client = OpenAI(
@@ -74,7 +75,7 @@ def main(n_iters, suite_name, redteam_scale, victim_scale, port):
     victim_llm = QwenLLM(victim_client, victim_model, **llm_args)
     judge_llm = OpenAILLM(judge_client, "gpt-4o")
 
-    redteam = Redteam(redteam_llm, system_message=suite.system_description, examples=suite.examples)
+    redteam = Redteam(redteam_llm, system_message=suite.system_description, examples=examples)
     agent = Agent(suite.runtime, suite.environment, victim_llm, suite.system_description)
     judge = Judge(judge_llm, suite.system_description)
 

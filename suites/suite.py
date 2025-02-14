@@ -8,4 +8,5 @@ class Suite:
     runtime: FunctionsRuntime
     system_description: str
     name: str
+    examples: str = None
 

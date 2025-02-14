@@ -67,5 +67,5 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-python base_testing.py --n-iters 500 --suite-name workspace --redteam-scale $REDTEAM_SCALE --victim-scale $VICTIM_SCALE
+python base_testing.py --n-iters 500 --suite-name slack --redteam-scale $REDTEAM_SCALE --victim-scale $VICTIM_SCALE
 

@@ -41,4 +41,5 @@ workspace_suite = Suite(
     runtime=workspace_runtime,
     system_description=SYSTEM_DESCRIPTION,
     name="workspace",
+    examples=EXAMPLES
 )
