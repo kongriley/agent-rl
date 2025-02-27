@@ -2,7 +2,7 @@ from agentdojo.task_suite.load_suites import get_suite
 from agentdojo.functions_runtime import FunctionsRuntime
 from suites.suite import Suite
 
-bank_task_suite = get_suite("v1", "bank")
+bank_task_suite = get_suite("v1", "banking")
 
 bank_environment = bank_task_suite.load_and_inject_default_environment({})
 bank_runtime = FunctionsRuntime(bank_task_suite.tools)

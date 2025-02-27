@@ -6,6 +6,7 @@ from multiprocessing import Pool
 
 import nltk
 from nltk.translate.bleu_score import SmoothingFunction
+nltk.download('punkt_tab')
 
 from fast_bleu import BLEU
     

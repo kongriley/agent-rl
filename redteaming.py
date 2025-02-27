@@ -141,7 +141,7 @@ def format_messages(messages):
             continue
         formatted_message = {}
         for k in m:
-            if k == "tool_calls":
+            if k == "tool_calls" and m[k] is not None:
                 formatted_message[k] = [format_value(v) for v in m[k]]
             elif k in ["content", "args", "error"]:
                 formatted_message[k] = m[k]

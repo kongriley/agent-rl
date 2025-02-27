@@ -10,5 +10,9 @@ wheels/
 
 .venv
 .env
+.cache
+.config
+.bash_history
+nltk_data/
 
 results/**/log*
