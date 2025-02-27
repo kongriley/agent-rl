@@ -6,16 +6,19 @@ from multiprocessing import Pool
 
 import nltk
 from nltk.translate.bleu_score import SmoothingFunction
-nltk.download('punkt_tab')
+
+nltk.download("punkt_tab")
 
 from fast_bleu import BLEU
-    
-class SelfBleuReward(object):
 
-    def __init__(self, 
-                 grams: List[int] = [3, 4, 6], 
-                 sample_size: int = -1,
-                 tokenizer: Callable = nltk.word_tokenize,) -> None:
+
+class SelfBleuReward(object):
+    def __init__(
+        self,
+        grams: List[int] = [3, 4, 6],
+        sample_size: int = -1,
+        tokenizer: Callable = nltk.word_tokenize,
+    ) -> None:
         print("BLEU sample size: ", sample_size)
         self.references = []
         self.grams = grams
@@ -29,7 +32,7 @@ class SelfBleuReward(object):
             self.references.append(self.tokenizer(ref))
 
     def __call__(self, hypotheses: List[str]):
-        weights = {f"{n}-gram": ([1. / n] * n) for n in self.grams}
+        weights = {f"{n}-gram": ([1.0 / n] * n) for n in self.grams}
         if self.sample_size > 0:
             sample_size = min(len(self.references), self.sample_size)
             bleu = BLEU(random.sample(self.references, k=sample_size), weights)

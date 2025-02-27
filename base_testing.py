@@ -66,8 +66,12 @@ def main(n_iters, suite_name, mode, redteam_scale, victim_scale, log_results):
     # Initialize models
     judge_client = OpenAI(api_key=OPENAI_API_KEY)
 
-    redteam_llm = QwenLLM(redteam_model, vllm_args=redteam_vllm_args, sampling_params=sampling_params)
-    victim_llm = QwenLLM(victim_model, vllm_args=victim_vllm_args, sampling_params=sampling_params)
+    redteam_llm = QwenLLM(
+        redteam_model, vllm_args=redteam_vllm_args, sampling_params=sampling_params
+    )
+    victim_llm = QwenLLM(
+        victim_model, vllm_args=victim_vllm_args, sampling_params=sampling_params
+    )
     judge_llm = OpenAILLM(judge_client, "gpt-4o")
 
     redteam = Redteam(
@@ -106,7 +110,7 @@ def main(n_iters, suite_name, mode, redteam_scale, victim_scale, log_results):
                 results["safe"] += 1
             else:
                 results["unsafe"] += 1
-        
+
         if log_results:
             with open(os.path.join(out_path, f"log_{start_time}.txt"), "a+") as f:
                 f.write(f"{i}/{n_iters}, {time.time()}\n")

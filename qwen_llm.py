@@ -45,6 +45,7 @@ def chat_completion_request(
         use_tqdm=False,
     )
 
+
 def _output_to_assistant_message(request_output: RequestOutput) -> ChatAssistantMessage:
     content = request_output.outputs[0].text
 
@@ -56,11 +57,13 @@ def _output_to_assistant_message(request_output: RequestOutput) -> ChatAssistant
             offset = m.start()
         try:
             func = json.loads(m.group(1))
-            tool_calls.append(FunctionCall(
-                function=func["name"],
-                args=func["arguments"],
-                id=f"tool_call_{i}",
-            ))
+            tool_calls.append(
+                FunctionCall(
+                    function=func["name"],
+                    args=func["arguments"],
+                    id=f"tool_call_{i}",
+                )
+            )
         except json.JSONDecodeError as e:
             print(f"Failed to parse tool calls: the content is {m.group(1)} and {e}")
             pass
@@ -96,7 +99,10 @@ class QwenLLM(OpenAILLM):
         dtype = vllm_args.get("vllm_dtype", "auto")
 
         world_size_patch = patch("torch.distributed.get_world_size", return_value=1)
-        profiling_patch = patch("vllm.worker.worker.Worker._assert_memory_footprint_increased_during_profiling", return_value=None)
+        profiling_patch = patch(
+            "vllm.worker.worker.Worker._assert_memory_footprint_increased_during_profiling",
+            return_value=None,
+        )
         with world_size_patch, profiling_patch:
             self.llm = LLM(
                 model=model,
