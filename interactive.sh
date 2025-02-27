@@ -7,11 +7,11 @@ srun -p vision-pulkitag-3090 \
     --gres=gpu:1 \
     --pty bash -i
 
+# Navigate to your project directory
+export HOME=/data/scratch/rileyis/agent-rl/
+
 # Source your bashrc
 source /data/scratch/rileyis/.bashrc
 
 # Activate your conda environment
 mamba activate agent-rl
-
-# Navigate to your project directory
-export HOME=/data/scratch/rileyis/agent-rl/

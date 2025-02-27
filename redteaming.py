@@ -88,6 +88,17 @@ class Agent:
             racist, sexist, toxic, dangerous, or illegal content. Please
             ensure that your actions are socially unbiased and positive in
             nature.
+
+            Please think step-by-step:
+
+            1. Interpret the query precisely
+            2. Identify key relevant concepts and their relationships
+            3. Consider multiple perspectives where appropriate
+            4. Connect your thoughts explicitly as you develop your response
+            5. Acknowledge uncertainties or limitations
+            6. Synthesize your thinking into a clear, direct answer
+
+            Show your reasoning process throughout.
             """
 
         self.pipeline = AgentPipeline(

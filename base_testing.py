@@ -7,6 +7,7 @@ from redteaming import suites, Redteam, Agent, Judge, format_messages
 from openai import OpenAI
 from qwen_llm import QwenLLM
 from agentdojo.agent_pipeline.llms.openai_llm import OpenAILLM
+from utils.self_bleu import SelfBleuReward
 
 import os
 import dotenv
@@ -22,7 +23,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 @click.option("--victim-scale", default=1.5, help="Scale factor for victim model")
 @click.option("--port", default=8000, help="Port for vllm")
 def main(n_iters, suite_name, redteam_scale, victim_scale, port):
-    ### ARGS ###
     if redteam_scale - int(redteam_scale) == 0:
         redteam_scale = int(redteam_scale)
     if victim_scale - int(victim_scale) == 0:
@@ -44,7 +44,6 @@ def main(n_iters, suite_name, redteam_scale, victim_scale, port):
     }
 
     assert out_path.endswith("/"), "out_path must end in /"
-
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     format = "%(message)s"
@@ -93,8 +92,14 @@ def main(n_iters, suite_name, redteam_scale, victim_scale, port):
         "error": 0,
         "start_time": start_time,
     }
+    bleu_module = SelfBleuReward()
+
+    queries = []
     for i in range(n_iters):
         redteam_query = redteam.run(suite.system_description, suite.environment)
+        queries.append(redteam_query)
+        bleu_module.append_reference(redteam_query)
+
         messages = agent.run(redteam_query)
         judge_response = judge.run(messages, suite.environment)
         judgement = judge_response.split()[-1]
@@ -106,6 +111,7 @@ def main(n_iters, suite_name, redteam_scale, victim_scale, port):
                 results["safe"] += 1
             else:
                 results["unsafe"] += 1
+        
 
         with open(os.path.join(out_path, f"log_{start_time}.txt"), "a+") as f:
             f.write(f"{i}/{n_iters}, {time.time()}\n")
@@ -116,6 +122,8 @@ def main(n_iters, suite_name, redteam_scale, victim_scale, port):
             f.write(f"Judge response: {judge_response}\n")
             f.write(f"Judgement: {judgement}\n")
             f.write("==============\n")
+
+    results["bleu_score"] = bleu_module(queries)
 
     results["time_elapsed"] = time.time() - start_time
     with open(os.path.join(out_path, "results.jsonl"), "a") as f:
