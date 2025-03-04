@@ -34,5 +34,5 @@ while getopts "r:v:" opt; do
   esac
 done
 
-python base_testing.py --n-iters 500 --suite-name slack --redteam-scale $REDTEAM_SCALE --victim-scale $VICTIM_SCALE --mode zero-shot
+python base_eval.py --n-iters 500 --suite-name slack --redteam-scale $REDTEAM_SCALE --victim-scale $VICTIM_SCALE --mode zero-shot
 

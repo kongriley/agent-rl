@@ -75,8 +75,11 @@ def main(n_iters, suite_name, mode, redteam_scale, victim_scale, log_results):
     judge_llm = OpenAILLM(judge_client, "gpt-4o")
 
     redteam = Redteam(
-        redteam_llm, system_message=suite.system_description, examples=examples
+        redteam_llm, system_message=suite.system_description
     )
+    if mode == "few-shot":
+        redteam.examples = examples
+        
     agent = Agent(
         suite.runtime, suite.environment, victim_llm, suite.system_description
     )
