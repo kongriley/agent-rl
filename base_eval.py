@@ -22,21 +22,15 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 @click.option("--suite-name", default="workspace", help="Name of the test suite")
 @click.option("--mode", default="few-shot", help="Mode of testing (few-shot/zero-shot)")
 @click.option("--redteam-scale", default=1.5, help="Scale factor for redteam model")
-@click.option("--victim-scale", default=1.5, help="Scale factor for victim model")
 @click.option("--log-results", default=True, help="Whether to log the results")
-def main(n_iters, suite_name, mode, redteam_scale, victim_scale, log_results):
+def main(n_iters, suite_name, mode, redteam_scale, log_results):
     redteam_scale = int(redteam_scale) if redteam_scale.is_integer() else redteam_scale
-    victim_scale = int(victim_scale) if victim_scale.is_integer() else victim_scale
 
     out_path = f"results/{suite_name}/{mode}/"
     redteam_model = f"Qwen/Qwen2.5-{redteam_scale}B-Instruct"
-    victim_model = f"Qwen/Qwen2.5-{victim_scale}B-Instruct"
+    victim_model = "gpt-4o-mini"
     redteam_vllm_args = {
         "vllm_gpu_memory_utilization": 0.45,
-        "vllm_max_model_len": 20544,
-    }
-    victim_vllm_args = {
-        "vllm_gpu_memory_utilization": 0.95,
         "vllm_max_model_len": 20544,
     }
     sampling_params = SamplingParams(
@@ -69,9 +63,7 @@ def main(n_iters, suite_name, mode, redteam_scale, victim_scale, log_results):
     redteam_llm = QwenLLM(
         redteam_model, vllm_args=redteam_vllm_args, sampling_params=sampling_params
     )
-    victim_llm = QwenLLM(
-        victim_model, vllm_args=victim_vllm_args, sampling_params=sampling_params
-    )
+    victim_llm = OpenAILLM(judge_client, victim_model)
     judge_llm = OpenAILLM(judge_client, "gpt-4o")
 
     redteam = Redteam(

@@ -7,6 +7,7 @@ from suites.bank_suite import bank_suite
 from suites.travel_suite import travel_suite
 from suites.slack_suite import slack_suite
 from suites.workspace_suite import workspace_suite
+from suites.api_bank_suite import api_bank_suite
 from rich.logging import RichHandler
 
 from qwen_llm import QwenLLM
@@ -199,6 +200,7 @@ suites = {
     "travel": travel_suite,
     "slack": slack_suite,
     "workspace": workspace_suite,
+    "api_bank": api_bank_suite,
 }
 
 # %%

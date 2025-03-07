@@ -23,16 +23,14 @@ cd /data/scratch/rileyis/agent-rl/
 
 # Default values
 REDTEAM_SCALE=1.5
-VICTIM_SCALE=1.5
 
 # Parse named parameters
-while getopts "r:v:" opt; do
+while getopts "r:" opt; do
   case $opt in
     r) REDTEAM_SCALE=$OPTARG ;;
-    v) VICTIM_SCALE=$OPTARG ;;
     *) echo "Invalid option: -$OPTARG" >&2; exit 1 ;;
   esac
 done
 
-python base_eval.py --n-iters 500 --suite-name slack --redteam-scale $REDTEAM_SCALE --victim-scale $VICTIM_SCALE --mode zero-shot
+python base_eval.py --n-iters 500 --suite-name api_bank --redteam-scale $REDTEAM_SCALE --mode few-shot
 

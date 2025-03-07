@@ -7,10 +7,13 @@ build/
 dist/
 wheels/
 *.egg-info
+.python_history
+
 
 .venv
 .env
 .cache
+.ruff_cache
 .config
 .conda
 .bash_history
