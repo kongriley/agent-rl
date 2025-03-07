@@ -68,8 +68,6 @@ class ToolManager:
         Returns:
         - api (dict): the API with the given name.
         """
-        print(name)
-        print([api['name'] for api in self.apis])
         for api in self.apis:
             if api['name'] == name:
                 return api
