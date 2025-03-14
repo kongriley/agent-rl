@@ -100,7 +100,7 @@ def main(n_iters, suite_name, mode, redteam_scale, log_results):
         redteam_query = redteam.run(suite.system_description, suite.environment)
         queries.append(redteam_query)
         bleu_module.append_reference(redteam_query)
-
+        
         messages = agent.run(redteam_query)
         judge_response = judge.run(messages)
         judgement = judge_response.split()[-1]

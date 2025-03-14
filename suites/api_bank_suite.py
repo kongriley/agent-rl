@@ -67,7 +67,7 @@ def {api["name"]}({sig_params}):
     out = tool_manager.api_call("{api["name"]}", **params)
     if out['exception'] is not None:
         raise Exception(out['exception'])
-    return out['output']
+    return str(out['output'])
     """
 
     namespace = {
@@ -104,5 +104,4 @@ api_bank_suite = Suite(
 
 if __name__ == "__main__":
     api_bank_runtime = api_bank_suite.runtime
-    print(api_bank_runtime.run_function(api_bank_suite.environment, "ToolSearcher", {"keywords": "record health data"}))
-    print(api_bank_runtime.run_function(api_bank_suite.environment, "PlayMusic", {"music_name": "swan_lake"}))
+    print(api_bank_runtime.run_function(api_bank_suite.environment, "SearchEngine", {"keyword": "top searched keywords for product"}))
