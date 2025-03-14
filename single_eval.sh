@@ -8,8 +8,6 @@
 #SBATCH --cpus-per-task=8             # number of CPUs per task
 #SBATCH --output=out/%x.%j.out
 
-# GPUS=2
-
 export HOME=/data/scratch/rileyis
 
 # Source your bashrc
@@ -21,16 +19,4 @@ mamba activate agent-rl
 # Navigate to your project directory
 cd /data/scratch/rileyis/agent-rl/
 
-# Default values
-REDTEAM_SCALE=1.5
-
-# Parse named parameters
-while getopts "r:" opt; do
-  case $opt in
-    r) REDTEAM_SCALE=$OPTARG ;;
-    *) echo "Invalid option: -$OPTARG" >&2; exit 1 ;;
-  esac
-done
-
-python base_eval.py --n-iters 500 --suite-name api_bank --redteam-scale $REDTEAM_SCALE --mode zero-shot
-
+python refusal_eval.py /data/scratch/rileyis/agent-rl/results/api_bank/zero-shot/log_1741363144.4690404.txt

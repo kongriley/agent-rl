@@ -4,6 +4,10 @@ import sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
+# To patch httpcore, googletrans, openai dependency issue. See https://stackoverflow.com/questions/72796594/
+import httpcore
+setattr(httpcore, 'SyncHTTPTransport', 'AsyncHTTPProxy')
+
 from .apis.tool_search import ToolSearcher
 from .apis import API
 import os
@@ -145,7 +149,6 @@ class ToolManager:
         """
         input_parameters = self.get_api_by_name(tool_name)['input_parameters'] # {'username': {'type': 'str', 'description': 'The username of the user.'}, 'password': {'type': 'str', 'description': 'The password of the user.'}}
         # assert len(kwargs) == len(input_parameters), 'invalid number of parameters. expected: {}, got: {}'.format(len(input_parameters), len(kwargs))
-
         processed_parameters = {}
         for input_key in kwargs:
             input_value = kwargs[input_key]

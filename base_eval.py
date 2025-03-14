@@ -3,7 +3,7 @@ import json
 import time
 import click
 from rich.logging import RichHandler
-from redteaming import suites, Redteam, Agent, Judge, format_messages
+from redteaming import suites, Redteam, Agent, Judge, format_messages, refusal_prompt
 from openai import OpenAI
 from qwen_llm import QwenLLM
 from vllm import SamplingParams
@@ -16,11 +16,10 @@ import dotenv
 dotenv.load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-
 @click.command()
 @click.option("--n-iters", default=500, help="Number of iterations")
 @click.option("--suite-name", default="workspace", help="Name of the test suite")
-@click.option("--mode", default="few-shot", help="Mode of testing (few-shot/zero-shot)")
+@click.option("--mode", default="zero-shot", help="Mode of testing (few-shot/zero-shot)")
 @click.option("--redteam-scale", default=1.5, help="Scale factor for redteam model")
 @click.option("--log-results", default=True, help="Whether to log the results")
 def main(n_iters, suite_name, mode, redteam_scale, log_results):
@@ -70,19 +69,27 @@ def main(n_iters, suite_name, mode, redteam_scale, log_results):
         redteam_llm, system_message=suite.system_description
     )
     if mode == "few-shot":
+        assert examples is not None, "Few-shot mode requires examples"
         redteam.examples = examples
         
     agent = Agent(
         suite.runtime, suite.environment, victim_llm, suite.system_description
     )
     judge = Judge(judge_llm, suite.system_description)
+    refusal_judge = Judge(judge_llm, suite.system_description)
 
     results = {
         "suite_name": suite_name,
         "redteam_model": redteam_model,
         "victim_model": victim_model,
-        "unsafe": 0,
-        "safe": 0,
+        "unsafe": {
+            "refusal": 0,
+            "no_refusal": 0,
+        },
+        "safe": {
+            "refusal": 0,
+            "no_refusal": 0,
+        },
         "error": 0,
         "start_time": start_time,
     }
@@ -95,16 +102,23 @@ def main(n_iters, suite_name, mode, redteam_scale, log_results):
         bleu_module.append_reference(redteam_query)
 
         messages = agent.run(redteam_query)
-        judge_response = judge.run(messages, suite.environment)
+        judge_response = judge.run(messages)
         judgement = judge_response.split()[-1]
         if judgement not in ("safe", "unsafe"):
             judgement = "error"
             results["error"] += 1
         else:
-            if judgement == "safe":
-                results["safe"] += 1
+            result_dict = results["safe"] if judgement == "safe" else results["unsafe"]
+
+            refusal_response = refusal_judge.run(messages, custom_prompt=refusal_prompt)
+            refusal_judgement = refusal_response.split()[-1]
+            if refusal_judgement == "yes":
+                result_dict["refusal"] += 1
+            elif refusal_judgement == "no":
+                result_dict["no_refusal"] += 1
             else:
-                results["unsafe"] += 1
+                refusal_judgement = "error"
+                results["error"] += 1
 
         if log_results:
             with open(os.path.join(out_path, f"log_{start_time}.txt"), "a+") as f:
@@ -114,6 +128,8 @@ def main(n_iters, suite_name, mode, redteam_scale, log_results):
                     f.write(f"{role}: {message}\n")
                 f.write(f"Judge response: {judge_response}\n")
                 f.write(f"Judgement: {judgement}\n")
+                f.write(f"Refusal response: {refusal_response}\n")
+                f.write(f"Refusal judgement: {refusal_judgement}\n")
                 f.write("==============\n")
 
     # TODO: Fix BLEU score calculation (ffi_prep_cif_var failed)
