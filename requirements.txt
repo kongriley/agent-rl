@@ -1,0 +1,9 @@
+torch
+agentdojo
+trl[vllm]
+sentence_transformers
+nltk
+googletrans
+fast-bleu
+selenium
+bs4

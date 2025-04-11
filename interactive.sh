@@ -8,17 +8,11 @@ srun -p vision-pulkitag-3090 \
     -N 1 \
     --mem=32G \
     --gres=gpu:1 \
-    --pty bash -c '
-    # Set HOME path
-    export HOME=/data/scratch/rileyis/agent-rl/
-    
-    # Source bashrc
-    source /data/scratch/rileyis/.bashrc
-    
-    # Activate conda environment
-    eval "$(conda shell.bash hook)"
-    mamba activate agent-rl
-    
-    # Start interactive shell
-    exec bash -i
-    '
+    --pty bash --rcfile <(cat <<EOF
+source /data/scratch/rileyis/.bashrc
+export HOME=/data/scratch/rileyis/
+cd /data/scratch/rileyis/agent-rl/
+# mamba activate agent-rl
+export PATH="$HOME/.local/bin:$PATH"
+EOF
+)
