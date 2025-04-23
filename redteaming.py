@@ -120,15 +120,18 @@ class Agent:
             ]
         )
 
-    def run(self, query: str):
+    def run(self, query: str, print_messages=False):
         with OutputLogger(None, None):
-            print("Query:", query)
+            if print_messages:
+                print("Query:", query)
 
             query, self.runtime, self.environment, messages, _ = self.pipeline.query(
                 query, self.runtime, self.environment
             )
 
-            print("Response:", messages[-1]["content"])
+            if print_messages:
+                print("Response:", messages[-1]["content"])
+
             if "reset_env" in self.environment.__dict__:
                 self.environment.reset_env()
 

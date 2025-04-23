@@ -1,14 +1,11 @@
 #!/bin/bash
-#SBATCH -p vision-pulkitag-a100,vision-pulkitag-a6000,vision-pulkitag-3090       # specify the partition
+#SBATCH -p vision-pulkitag-h100,vision-pulkitag-a100,vision-pulkitag-a6000       # specify the partition
 #SBATCH -q vision-pulkitag-debug         # specify the QoS
-#SBATCH -t 02:00:00                   # job time
+#SBATCH -t 2:00:00                   # job time
 #SBATCH -n 1                       # number of tasks
-#SBATCH --gres=gpu:1                  # request GPU resource
-#SBATCH --mem=64G                     # total memory
-#SBATCH --cpus-per-task=8             # number of CPUs per task
+#SBATCH --gres=gpu:2                  # request GPU resource
+#SBATCH --mem=200G
 #SBATCH --output=out/%x.%j.out
-
-# GPUS=2
 
 export HOME=/data/scratch/rileyis
 
@@ -16,19 +13,16 @@ export HOME=/data/scratch/rileyis
 source /data/scratch/rileyis/.bashrc
 
 # Activate your conda environment
-mamba activate agent-rl
+mamba activate agent-rl-new
 
 # Navigate to your project directory
 cd /data/scratch/rileyis/agent-rl/
 
 PORT=8000
 
-echo "starting vllm"
-trl vllm-serve --model Qwen/Qwen2.5-1.5B-Instruct --port $PORT
-
 # Function to check if vllm is up
 function wait_for_vllm {
-    iters=50
+    iters=$1
     for i in $(seq 1 $iters); do
         if lsof -i :$PORT > /dev/null; then
             echo "vllm is up and running!"
@@ -41,11 +35,14 @@ function wait_for_vllm {
     return 1
 }
 
-# Wait for vllm to be ready
-wait_for_vllm
-if [ $? -ne 0 ]; then
-    echo "Exiting due to vllm startup failure."
-    exit 1
-fi
+# echo "starting vllm"
+# trl vllm-serve --model Qwen/Qwen2.5-1.5B-Instruct --port $PORT --gpu_memory_utilization 0.45 &
 
-python train_grpo.py
+# # Wait for vllm to be ready
+# wait_for_vllm 100
+# if [ $? -ne 0 ]; then
+#     echo "Exiting due to vllm startup failure."
+#     exit 1
+# fi
+
+accelerate launch --config_file grpo_config.yaml train_grpo.py
