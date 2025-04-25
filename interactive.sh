@@ -5,7 +5,7 @@ srun -p vision-pulkitag-h100,vision-pulkitag-a100,vision-pulkitag-a6000,vision-p
     -t 02:00:00 \
     -N 1 \
     --mem=200G \
-    --gres=gpu:1 \
+    --gres=gpu:2 \
     --pty bash -i
 
 source /data/scratch/rileyis/.bashrc

@@ -40,27 +40,27 @@ redteam_model_id = f"Qwen/Qwen2.5-{redteam_scale}B-Instruct"
 output_dir = f"grpo/Qwen2.5-{redteam_scale}b/{suite_name}"
 
 redteam_model = redteam_model_id
-# redteam_model = AutoModelForCausalLM.from_pretrained(
-#     redteam_model_id,
-#     device_map="auto",
-#     quantization_config=BitsAndBytesConfig(
-#         load_in_4bit=True,
-#         bnb_4bit_quant_type="nf4",
-#         bnb_4bit_use_double_quant=True,
-#         bnb_4bit_compute_dtype=torch.bfloat16,
-#     ),
-# )
-# redteam_model = prepare_model_for_kbit_training(redteam_model)
-# redteam_model = get_peft_model(
-#     redteam_model, 
-#     peft_config=LoraConfig(
-#         r=8,
-#         lora_alpha=16,
-#         lora_dropout=0.0,
-#         bias="none",
-#         task_type="CAUSAL_LM",
-#     )
-# )
+redteam_model = AutoModelForCausalLM.from_pretrained(
+    redteam_model_id,
+    device_map="auto",
+    quantization_config=BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    ),
+)
+redteam_model = prepare_model_for_kbit_training(redteam_model)
+redteam_model = get_peft_model(
+    redteam_model, 
+    peft_config=LoraConfig(
+        r=8,
+        lora_alpha=16,
+        lora_dropout=0.0,
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
+)
 
 # Construct one-example dataset
 tokenizer = AutoTokenizer.from_pretrained(redteam_model_id)
