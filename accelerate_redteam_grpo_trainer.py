@@ -158,62 +158,77 @@ class TextCSVLoggerWithTimestamp(object):
 
 @dataclass
 @register_method
-class RedteamPPOConfig(PPOConfig):
+class RedteamGRPOConfig(PPOConfig):
+    """
+    GRPO specific configuration
+    """
+    num_generations: int = 4        # Number of generations per prompt
+    temperature: float = 1.0        # Temperature for sampling
+    top_p: float = 1.0              # Top-p sampling parameter
+    loss_type: str = "kl"           # Type of loss to use ("kl" or "pg")
     
-    '''
+    """
     BLEU rewards configuration
-    '''
-    bleu_reward_coef: float = -0.5 # NOTE: must be negative since we want to minimize overlap
-    bleu_reward_grams: str = "[3, 4, 5]" # NOTE: accelerate tracker cannot log list arguments
-    bleu_reward_include_prompts: bool = False # Including prompts in continuation tasks
+    """
+    bleu_reward_coef: float = -0.5  # NOTE: must be negative since we want to minimize overlap
+    bleu_reward_grams: str = "[3, 4, 5]"  # NOTE: accelerate tracker cannot log list arguments
+    bleu_reward_include_prompts: bool = False  # Including prompts in continuation tasks
     bleu_tokenizer: str = "nltk"
     bleu_n_samples: int = -1
 
-    '''
+    """
     Entropy bonus configuration (i.e., KL penalty to uniform distribution)
-    '''
+    """
     ent_reward_coef: float = 0.0
 
-    '''
+    """
     Sentence embedding bonus
-    '''
+    """
     cossimemb_reward_coef: float = 0.0
     cossimemb_n_samples: int = -1
     cossimemb_impl: str = "huggingface"
     cossimemb_reward_include_prompts: bool = True
     cossimemb_model_device: str = "default" 
     
-    '''
+    """
     Textual similarity reward (between attacker's prompts and attacker's responses)
-    '''
+    """
     textual_sim_reward_coef: float = 0.0
     textual_sim_reward_include_prompts: bool = False
     
-    '''
+    """
     Target model's batch embedding diversity
-    '''
+    """
     target_sim_div_reward_coef: float = 0.0
     
-    '''
+    """
     GiberishPenalty
-    '''
+    """
     giberish_penalty_coef: float = 0.0
-    giberish_model_device: str = "default" # same as attacker
+    giberish_model_device: str = "default"  # same as attacker
     
-    '''
+    """
     Reward model device
-    '''
+    """
     reward_model_device_offset: int = 0
 
 
 @register_trainer
-class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
+class AccelerateRedteamGRPOTrainer(AccelerateRLTrainer):
+    """
+    GRPO (Gradient-based Reinforcement Learning with Policy Optimization) trainer for red-teaming.
+    
+    GRPO differs from PPO in that it:
+    1. Uses direct policy gradients rather than clipped surrogate objectives
+    2. Generates multiple samples per prompt to estimate policy gradients
+    3. Uses a different loss function based on KL-divergence or policy gradients
+    """
 
     def __init__(self, config: TRLConfig, **kwargs):
         super().__init__(config, **kwargs)
-        self._setup_redteam(config)
+        self._setup_grpo(config)
 
-    def _setup_redteam(self, config):
+    def _setup_grpo(self, config):
         if inspect.isclass(self.reward_fn) or isinstance(self.reward_fn, functools.partial):
             self.reward_fn = self.reward_fn(self.accelerator.device, self.model.base_model, self.tokenizer)
         
@@ -237,158 +252,62 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
         )
         
         if self.config.method.giberish_penalty_coef != 0:
-            self.giberish_penalty_penalty_module = GiberishPenalty((self.accelerator.device if config.method.giberish_model_device == "default" else config.method.giberish_model_device))
+            self.giberish_penalty_penalty_module = GiberishPenalty(
+                (self.accelerator.device if config.method.giberish_model_device == "default" else config.method.giberish_model_device)
+            )
     
         self.train_text_logger = TextCSVLogger(self.accelerator.project_dir, "train.csv")
         self.eval_text_logger = TextCSVLogger(self.accelerator.project_dir, "eval.csv")
         self.history_scores = []
-
-    @torch.inference_mode()
-    def _process_element(self, ppo_rl_elements, samples, batch, prompt_tensors, sample_outputs, scores, scores_mask, device):
-        # Precompute logprobs, values
-        if self.config.model.model_arch_type == "seq2seq":
-            attention_mask = batch.attention_mask.to(device)
-            prompt_tensors = batch.input_ids.to(device)
-            decoder_attention_mask = sample_outputs.not_equal(self.tokenizer.pad_token_id)
-            decoder_attention_mask[:, 0] = 1
-            batch_size = sample_outputs.shape[0]
-            with torch.no_grad():
-                attention_mask_arg = attention_mask if batch_size != 1 else None
-                outputs = self.model(
-                    input_ids=prompt_tensors,
-                    attention_mask=attention_mask_arg,
-                    decoder_input_ids=sample_outputs,
-                    decoder_attention_mask=decoder_attention_mask,
-                )
-                logits = outputs.logits
-                values = outputs.value
-                if hasattr(self.model, "frozen_head") or self.model.peft_type:
-                    ref_logits = self.model.forward_hydra(
-                        input_ids=prompt_tensors,
-                        attention_mask=attention_mask_arg,
-                        decoder_input_ids=sample_outputs,
-                        decoder_attention_mask=decoder_attention_mask,
-                        return_dict=True,
-                    ).logits
-                else:
-                    ref_logits = self.ref_model(
-                        input_ids=prompt_tensors,
-                        attention_mask=attention_mask_arg,
-                        decoder_input_ids=sample_outputs,
-                        decoder_attention_mask=decoder_attention_mask,
-                        return_dict=True,
-                    ).logits
-        else:
-            all_tokens = torch.cat((prompt_tensors.to(device), sample_outputs), dim=1)
-            attention_mask = all_tokens.not_equal(self.tokenizer.pad_token_id).long().to(device)
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
-            batch_size = all_tokens.shape[0]
-            with torch.no_grad():
-                # TODO: make this output from both aux and primary policy
-                attention_mask_arg = attention_mask if batch_size != 1 else None
-                logits, *_, values = self.model(
-                    all_tokens, attention_mask=attention_mask_arg, position_ids=position_ids
-                )
-                # TODO(dahoas): When hydra model works need to also support generation on hydra head
-                if hasattr(self.model, "frozen_head") or self.model.peft_type:
-                    ref_logits = self.model.forward_hydra(
-                        all_tokens,
-                        attention_mask=attention_mask_arg,
-                        position_ids=position_ids,
-                        return_dict=True,
-                    ).logits
-                else:
-                    ref_logits = self.ref_model(
-                        all_tokens,
-                        attention_mask=attention_mask_arg,
-                        position_ids=position_ids,
-                        return_dict=True,
-                    ).logits
-                    ref_logits = ref_logits.to(device)
-                    
-        if self.config.model.model_arch_type == "seq2seq":
-            logprobs = logprobs_of_labels(logits[:, :-1, :], sample_outputs[:, 1:])
-            ref_logprobs = logprobs_of_labels(ref_logits[:, :-1, :], sample_outputs[:, 1:])
-        else:
-            # NOTE: logprob[i] is (log)prob at which all_token[i+1] was sampled
-            logprobs = logprobs_of_labels(logits[:, :-1, :], all_tokens[:, 1:])
-            ref_logprobs = logprobs_of_labels(ref_logits[:, :-1, :], all_tokens[:, 1:])
-
-        n_samples: int = samples.shape[0]
-
-        # Estimate the KL divergence between the model and reference model
-        if self.config.model.model_arch_type == "seq2seq":
-            attention_mask = sample_outputs != self.tokenizer.pad_token_id
-            start = 0
-        else:
-            start = prompt_tensors.shape[1] - 1
-
-        log_ratio = (logprobs - ref_logprobs) * attention_mask[:, :-1]
-        kl = log_ratio.exp() - 1 - log_ratio
-
-        """
-        Entropy bonus for exploration
-        """
-        entropy = -logprobs * attention_mask[:, :-1]
-
-        mean_kl_per_token = kl.mean()
-        mean_kl = kl.sum(1).mean()
-
-        logprobs = logprobs.cpu()
-        ref_logprobs = ref_logprobs.cpu()
-        prompt_tensors = prompt_tensors.cpu()
-        sample_outputs = sample_outputs.cpu()
-        values = values.cpu()[:, :-1]
-
-        # Get the logprobs and values, for tokens that are not padding,
-        # from the end of the prompt up to the <eos> token, while also including the latter
-        # (these are taken from the student model and not the reference model)
-        ends = start + attention_mask[:, start:].sum(1) + 1
-        all_values = [values[ix, start : ends[ix]] for ix in range(n_samples)]
-        all_logprobs = [logprobs[ix, start : ends[ix]] for ix in range(n_samples)]
-
-        kl_penalty = self.kl_ctl.value * -log_ratio.cpu()
-        kl_penalty = [xs[start : ends[ix]] for ix, xs in enumerate(kl_penalty)]
         
-        entropy_bonus = self.config.method.ent_reward_coef * entropy.cpu()
-        entropy_bonus = [xs[start : ends[ix]] for ix, xs in enumerate(entropy_bonus)]
+        # GRPO specific parameters
+        self.num_generations = self.config.method.num_generations
+        self.running_moments = RunningMoments()
+        self.ref_mean = None
+        self.ref_std = None
 
-        rollout_count = 0
-
-        for sample_idx in range(n_samples):
-            sample_length = ends[sample_idx]-start
-            if sample_length <= 2:
-                rewards = torch.zeros(2)
-            else:
-                rewards = kl_penalty[sample_idx] + entropy_bonus[sample_idx]
-            # Then add in rewards
-            if scores.shape[1] == 1:
-                # NOTE: Final reward given at EOS token following HHH practice
-                rewards[-1] += scores[sample_idx][0].cpu()
-            else:
-                score = scores[sample_idx]
-                score_right_padding = torch.sum(scores_mask[sample_idx])
-                score = score[:score_right_padding].cpu()
-                p_score = torch.zeros_like(rewards)
-                p_score[: score.shape[0]] += score
-                rewards += p_score
-
-            ppo_rl_elements.append(
-                PPORLElement(
-                    query_tensor=prompt_tensors[sample_idx],
-                    response_tensor=sample_outputs[sample_idx],
-                    logprobs=all_logprobs[sample_idx],
-                    values=all_values[sample_idx],
-                    rewards=rewards,
-                )
-            )
-
-            rollout_count += 1
+    def generate(self, input_ids, attention_mask=None, **kwargs):
+        """
+        Generate samples from the model using the given inputs.
+        For GRPO, we generate multiple samples per input.
+        """
+        # Set generation parameters
+        gen_kwargs = dict(
+            max_new_tokens=self.config.train.gen_kwargs.max_new_tokens,
+            temperature=self.config.method.temperature,
+            top_p=self.config.method.top_p,
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=self.tokenizer.eos_token_id,
+        )
+        gen_kwargs.update(kwargs)
         
-        return mean_kl, mean_kl_per_token, rollout_count
+        # Prepare inputs for generation
+        batch_size = input_ids.shape[0]
+        device = input_ids.device
+        
+        # For each input, generate multiple samples
+        all_samples = []
+        for i in range(batch_size):
+            # Repeat the input num_generations times
+            repeated_input = input_ids[i:i+1].repeat(self.num_generations, 1)
+            repeated_mask = None
+            if attention_mask is not None:
+                repeated_mask = attention_mask[i:i+1].repeat(self.num_generations, 1)
+            
+            # Generate samples
+            with torch.no_grad():
+                samples = self.model.generate(
+                    input_ids=repeated_input,
+                    attention_mask=repeated_mask,
+                    **gen_kwargs
+                )
+                all_samples.append(samples)
+        
+        # Concatenate all samples
+        return torch.cat(all_samples, dim=0)
 
     def _aggregate_traj_reward(self, all_scores, all_bleu_scores, all_cossimemb_scores, all_textualsim_scores, all_target_sim_div_scores, all_giberish_scores, device):
+        """Aggregate trajectory rewards from different reward components"""
         return [
             torch.tensor(score + 
                 self.config.method.bleu_reward_coef * bleu_score +
@@ -404,87 +323,101 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
         ]
 
     @torch.inference_mode()
-    def make_experience(self, num_rollouts: int = 1024, iter_count: int = 0):  # noqa:
-        """Make experiences
-
-        Takes `chunk_size` number of prompts from `prompt_iterator`, samples
-        from the model and then computes the KL against a reference model. Finally it
-        then appends PPOElements to trainer's `store`.
-
+    def make_experience(self, num_rollouts: int = 1024, iter_count: int = 0):
+        """
+        Generate experiences using GRPO approach.
+        
+        In GRPO, we:
+        1. Generate multiple samples for each prompt
+        2. Compute rewards for each sample
+        3. Optimize directly using policy gradients instead of PPO's clipped surrogate objectives
+        
         Args:
             num_rollouts: Number of rollouts to generate
-            iter_count: Total number of updates run (i.e. number of updates run for all batches & epochs)
+            iter_count: Total number of updates run
         """
         logger.info("Collecting rollouts")
         tbar = logging.tqdm(
             total=num_rollouts,
             disable=os.environ.get("RANK", 0) != "0",
             desc=f"[rollout 0 / {num_rollouts}]",
-            # Lower progress bar by 1 if we're in WARNING mode or above to avoid hiding high priority progress
-            # bars (e.g. loss progress in trainers)
             position=logging.get_verbosity() >= logging.WARNING,
-            # Leave progress bar if we're in INFO mode or lower to avoid spamming in suppressed verbosity levels
             leave=logging.get_verbosity() < logging.WARNING,
         )
 
         clock = Clock()
-        ppo_rl_elements = []
+        grpo_batch_data = []
         accumulated_stats = []
-
-        while len(ppo_rl_elements) < num_rollouts:
+        
+        # Generate samples until we have enough rollouts
+        samples_collected = 0
+        while samples_collected < num_rollouts:
             stats = {}
             # Get next batch in prompt dataset
             batch: PromptBatch = next(self.prompt_iterator)
 
             rollout_generate_time = time()
 
-            # Generate samples from the language model (similar to using HuggingFace `generate` method)
-            attention_mask_arg = batch["attention_mask"] if batch["attention_mask"].shape[0] !=1 else None
+            # Generate samples from the language model
+            attention_mask_arg = batch["attention_mask"] if batch["attention_mask"].shape[0] != 1 else None
             samples = self.generate(batch["input_ids"], attention_mask_arg)
             stats["time/rollout_generate"] = time() - rollout_generate_time
 
             prompt_tensors = batch.input_ids
             device = samples.device
-
-            prompt_sizes = torch.tensor([prompt_tensors.shape[1]] * len(prompt_tensors), device=device)
+            
+            # Number of unique prompts (each prompt has multiple generations)
+            num_prompts = prompt_tensors.shape[0]
+            
+            # Prepare the data for gathering across processes
+            prompt_sizes = torch.tensor([prompt_tensors.shape[1]] * len(prompt_tensors) * self.num_generations, device=device)
+            
+            # Repeat prompts to match the number of samples generated
+            repeated_prompts = []
+            for i in range(num_prompts):
+                repeated_prompts.append(prompt_tensors[i:i+1].repeat(self.num_generations, 1))
+            repeated_prompts = torch.cat(repeated_prompts, dim=0)
+            
             padded_samples = self.accelerator.pad_across_processes(
                 samples, dim=1, pad_index=self.tokenizer.eos_token_id, pad_first=False
             )
             padded_prompts = self.accelerator.pad_across_processes(
-                prompt_tensors, dim=1, pad_index=self.tokenizer.eos_token_id, pad_first=False
+                repeated_prompts, dim=1, pad_index=self.tokenizer.eos_token_id, pad_first=False
             )
+            
             gathered_samples = self.accelerator.gather(padded_samples)
             gathered_prompts = self.accelerator.gather(padded_prompts)
             gathered_prompt_sizes = self.accelerator.gather(prompt_sizes)
+            
             metadata = gather_dict({k: v for k, v in batch.items() if k != "input_ids" and k != "attention_mask"})
             
             if self.accelerator.is_main_process:
+                # Decode the prompts and samples
                 all_str_samples, all_str_prompts, all_str_outputs = self.decode(
                     gathered_prompts, gathered_samples, gathered_prompt_sizes, append_eos_token=True
                 )
                 
                 rollout_score_time = time()
-                # reward_fn should return list of rewards at each token per sample        
+                
+                # Compute rewards from the reward function
                 all_scores, all_str_victim_outputs = self.reward_fn(
-                            samples=all_str_samples, 
-                            prompts=all_str_prompts, 
-                            outputs=all_str_outputs,
-                            return_texts=True,
-                            **metadata)
-                """
-                Training logs: log all generated texts
-                """
+                    samples=all_str_samples, 
+                    prompts=all_str_prompts, 
+                    outputs=all_str_outputs,
+                    return_texts=True,
+                    **metadata
+                )
+                
+                # Log generated texts
                 self.train_text_logger.log(
                     all_str_prompts, 
                     all_str_outputs, 
-                    all_str_victim_outputs, # TODO: this can be a list of tuples
-                    all_scores)
+                    all_str_victim_outputs,
+                    all_scores
+                )
 
-                """
-                Compute Self-BLEU rewards as diveristy penalty
-                  1. Compute Self-BLEU score for each generated response
-                  2. Update the references in Self-BLEU score 
-                """
+                # Compute additional rewards
+                # Self-BLEU rewards for diversity
                 if self.config.method.bleu_reward_coef == 0:
                     all_bleu_scores = [0.] * len(all_scores)
                 else:
@@ -495,9 +428,7 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
                         all_bleu_scores = self.bleu_reward_module(all_str_outputs)
                         self.bleu_reward_module.append_reference(all_str_outputs)
 
-                """
-                Compute SimEmd rewards as diversity penalty
-                """
+                # Cosine similarity embedding rewards
                 if self.config.method.cossimemb_reward_coef == 0:
                     all_cossimemb_scores = [0.] * len(all_scores)
                 else:
@@ -508,92 +439,80 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
                         all_cossimemb_scores = self.cossimemb_reward_module(all_str_outputs)
                         self.cossimemb_reward_module.append_reference(all_str_outputs)
                     
-                """
-                Compute similarity rewards
-                """
+                # Textual similarity rewards
                 if self.config.method.textual_sim_reward_coef == 0:
                     all_textualsim_scores = [0.] * len(all_scores)
                 else:
                     if self.config.method.textual_sim_reward_include_prompts:
                         all_textualsim_scores = self.cossimemb_reward_module.compute_similarity(
                             all_str_prompts,
-                            all_str_samples)
+                            all_str_samples
+                        )
                     else:
                         all_textualsim_scores = self.cossimemb_reward_module.compute_similarity(
                             all_str_prompts,
-                            all_str_outputs)
+                            all_str_outputs
+                        )
                         
-                """
-                Compute target embedding diversity rewards
-                """
+                # Target embedding diversity rewards
                 if self.config.method.target_sim_div_reward_coef == 0:
                     all_target_sim_div_scores = [0.] * len(all_scores)
                 else:                    
                     all_target_sim_div_scores = self.cossimemb_reward_module.compute_l1_div_rewards(
-                        all_str_victim_outputs)
-                    
+                        all_str_victim_outputs
+                    )
                 
-                """
-                Compute gibberish penalty
-                """                
+                # Gibberish penalty
                 if self.config.method.giberish_penalty_coef == 0:
                     all_giberish_scores = [0.] * len(all_scores)
                 else:
                     all_giberish_scores = self.giberish_penalty_penalty_module(all_str_outputs)
-                                
-                all_scores = self._aggregate_traj_reward(all_scores, all_bleu_scores, all_cossimemb_scores, all_textualsim_scores, all_target_sim_div_scores, all_giberish_scores, device)
                 
-                # Pad 0 reward on the ends
+                # Aggregate all rewards
+                all_scores = self._aggregate_traj_reward(
+                    all_scores, all_bleu_scores, all_cossimemb_scores, 
+                    all_textualsim_scores, all_target_sim_div_scores, all_giberish_scores, 
+                    device
+                )
+                
+                # Pad rewards and distribute to processes
                 all_scores = pad_sequence(all_scores, batch_first=True, padding_value=-np.inf)
                 max_len = torch.tensor(all_scores.shape[1], dtype=torch.long, device=device)
 
                 stats["time/rollout_score"] = time() - rollout_score_time
 
+                # Split scores for each process
                 all_scores = list(all_scores.reshape(self.accelerator.num_processes, -1, max_len).unbind())
                 self.history_scores += all_scores
             else:
                 all_scores = None
                 max_len = torch.tensor(0, dtype=torch.long, device=device)
 
+            # Broadcast max_len to all processes
             if torch.distributed.is_initialized():
                 torch.distributed.broadcast(max_len, 0)
                 
+                # Receive scores from main process
                 scores = torch.empty((len(samples), max_len), device=device)
                 torch.distributed.scatter(scores, all_scores)
-                
-                bleu_scores = torch.empty((len(samples), max_len), device=device)
-                torch.distributed.scatter(bleu_scores, all_bleu_scores)
-                
-                cossimemb_scores = torch.empty((len(samples), max_len), device=device)
-                torch.distributed.scatter(cossimemb_scores, all_cossimemb_scores)
-                
-                textualsim_scores = torch.empty((len(samples), max_len), device=device)
-                torch.distributed.scatter(textualsim_scores, all_textualsim_scores)
-                
-                targetsimdiv_scores = torch.empty((len(samples), max_len), device=device)
-                torch.distributed.scatter(targetsimdiv_scores, all_target_sim_div_scores)
-                
-                giberish_scores = torch.empty((len(samples), max_len), device=device)
-                torch.distributed.scatter(giberish_scores, all_giberish_scores)                
             else:
                 scores = all_scores[0].clone().detach()
-                bleu_scores = torch.tensor(all_bleu_scores).unsqueeze(1).clone().detach().to(scores.device)
-                cossimemb_scores = torch.tensor(all_cossimemb_scores).unsqueeze(1).clone().detach().to(scores.device)              
-                textualsim_scores = torch.tensor(all_textualsim_scores).unsqueeze(1).clone().detach().to(scores.device)
-                targetsimdiv_scores = torch.tensor(all_target_sim_div_scores).unsqueeze(1).clone().detach().to(scores.device)
-                giberish_scores = torch.tensor(all_giberish_scores).unsqueeze(1).clone().detach().to(scores.device)
-                
+            
+            # Create mask for valid score positions
             scores_mask = scores != -np.inf
-
-            str_samples, str_prompts, str_outputs = self.decode(prompt_tensors, samples, append_eos_token=True)
-
-            # Pad the sample outputs
+            
+            # For GRPO, we need to compute logprobs for each sample
+            str_samples, str_prompts, str_outputs = self.decode(prompt_tensors.repeat_interleave(self.num_generations, 0), 
+                                                              samples, append_eos_token=True)
+            
+            # Tokenize outputs for computing logprobs
             outputs = self.tokenizer(str_outputs).input_ids
             if self.config.model.model_arch_type == "seq2seq":
-                # add <pad> to the start of the output
+                # Add <pad> to the start of the output for seq2seq models
                 for i in range(len(outputs)):
                     outputs[i] = [self.tokenizer.pad_token_id] + outputs[i]
 
+            # Pad outputs to the same length
             outputs = list(map(torch.LongTensor, outputs))
             maxsize = max(map(len, outputs))
             outputs = [
@@ -605,61 +524,281 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
                 for output in outputs
             ]
             sample_outputs = torch.vstack(outputs).to(device)
-
-            if self.config.method.cliprange_reward:
-                scores = torch.clip(scores, -self.config.method.cliprange_reward, self.config.method.cliprange_reward)
-
-            # store statistics of the initial rollout as reference
+            
+            # Compute logprobs for each sample
+            # This is needed for GRPO's policy gradient computation
+            repeated_prompts = prompt_tensors.repeat_interleave(self.num_generations, 0).to(device)
+            
+            # Store batch data for training
+            grpo_batch = {
+                'prompts': repeated_prompts,
+                'responses': sample_outputs,
+                'rewards': scores,
+                'rewards_mask': scores_mask,
+            }
+            
+            grpo_batch_data.append(grpo_batch)
+            
+            # Track statistics
             if self.ref_mean is None:
-                self.ref_mean, self.ref_std = (scores * scores_mask).sum(dim=1).mean(), (scores * scores_mask).sum(
-                    dim=1
-                ).std()
+                self.ref_mean, self.ref_std = (scores * scores_mask).sum(dim=1).mean(), (scores * scores_mask).sum(dim=1).std()
+            
             all_scores_mean, all_scores_std = self.running_moments.update(torch.sum(scores * scores_mask, dim=1))
             stats["rollout_scores/mean"] = all_scores_mean.item()
             stats["rollout_scores/std"] = all_scores_std.item()
             stats["rollout_scores/running_mean"] = self.running_moments.mean.item()
             stats["rollout_scores/running_std"] = self.running_moments.std.item()
             
-            stats["rollout_bleu_scores/mean"] = (bleu_scores * scores_mask).mean().item()
-            stats["rollout_cossimemb_scores/mean"] = (cossimemb_scores * scores_mask).mean().item()
-            stats["rollout_textualsim_scores/mean"] = (textualsim_scores * scores_mask).mean().item()
-            stats["rollout_targetsimdiv_scores/mean"] = (targetsimdiv_scores * scores_mask).mean().item()
-            stats["rollout_giberish_scores/mean"] = (giberish_scores * scores_mask).mean().item()
+            # Update the number of samples collected
+            samples_collected += len(samples)
             
-            if self.config.method.scale_reward == "running":
-                scores /= self.running_moments.std
-            elif self.config.method.scale_reward == "ref":
-                scores /= self.ref_std
-
-            mean_kl, mean_kl_per_token, rollout_count = self._process_element(
-                ppo_rl_elements, samples, batch, prompt_tensors, sample_outputs, scores, scores_mask, device)
-
-            if torch.distributed.is_initialized():
-                torch.distributed.all_reduce(mean_kl, torch.distributed.ReduceOp.AVG)
-
             stats["time/rollout_time"] = clock.tick()
-            stats["policy/sqrt_kl"] = torch.sqrt(mean_kl).item()
-            stats["policy/kl_per_token"] = torch.sqrt(mean_kl_per_token).item()
             accumulated_stats.append(stats)
 
-            tbar.set_description(f"[rollout {len(ppo_rl_elements)} / {num_rollouts}]")
-            tbar.update(min(rollout_count, num_rollouts))
+            tbar.set_description(f"[rollout {samples_collected} / {num_rollouts}]")
+            tbar.update(min(len(samples), num_rollouts - (samples_collected - len(samples))))
+        
         tbar.close()
 
-        stats = {k: sum([xs[k] for xs in accumulated_stats]) / len(accumulated_stats) for k in stats}
-        stats["kl_ctl_value"] = self.kl_ctl.value
-        self.mean_kl = stats["policy/sqrt_kl"] ** 2
+        # Average statistics
+        stats = {k: sum([xs[k] for xs in accumulated_stats]) / len(accumulated_stats) for k in accumulated_stats[0]}
         self.accelerator.log(stats, step=iter_count)
 
-        # Push samples and rewards to trainer's rollout storage
-        self.push_to_store(ppo_rl_elements)
+        # Store batch data for training
+        self.grpo_batch_data = grpo_batch_data
 
-    
-    def evaluate(self):  # noqa: C901
-        """Samples model on `eval_prompts`, logs stats with `reward_fn` or `metric_fn` if provided"""
+    def compute_loss(self, batch):
+        """
+        Compute GRPO loss based on the rewards and logprobs.
+        
+        GRPO uses direct policy gradients rather than PPO's clipped surrogate objectives.
+        The core idea is to compute gradients directly with respect to rewards.
+        
+        Args:
+            batch: Dictionary containing prompts, responses, rewards, and reward masks
+            
+        Returns:
+            Dictionary of loss components and statistics
+        """
+        # Unpack batch
+        prompts = batch['prompts']
+        responses = batch['responses']
+        rewards = batch['rewards']
+        rewards_mask = batch['rewards_mask']
+        
+        device = prompts.device
+        batch_size = prompts.shape[0]
+        
+        # Concatenate prompts and responses for causal models, or keep separate for seq2seq
+        if self.config.model.model_arch_type == "seq2seq":
+            # For seq2seq models, we compute logprobs on responses only
+            attention_mask = prompts.not_equal(self.tokenizer.pad_token_id)
+            decoder_attention_mask = responses.not_equal(self.tokenizer.pad_token_id)
+            decoder_attention_mask[:, 0] = 1  # Always attend to first token
+            
+            # Compute logits for current policy
+            outputs = self.model(
+                input_ids=prompts,
+                attention_mask=attention_mask if batch_size != 1 else None,
+                decoder_input_ids=responses,
+                decoder_attention_mask=decoder_attention_mask,
+            )
+            logits = outputs.logits
+            
+            # Compute logprobs of responses
+            logprobs = logprobs_of_labels(logits[:, :-1, :], responses[:, 1:])
+            
+            # Compute KL if needed
+            if self.config.method.loss_type == "kl":
+                # Compute logits for reference model
+                with torch.no_grad():
+                    if hasattr(self.model, "frozen_head") or self.model.peft_type:
+                        ref_logits = self.model.forward_hydra(
+                            input_ids=prompts,
+                            attention_mask=attention_mask if batch_size != 1 else None,
+                            decoder_input_ids=responses,
+                            decoder_attention_mask=decoder_attention_mask,
+                            return_dict=True,
+                        ).logits
+                    else:
+                        ref_logits = self.ref_model(
+                            input_ids=prompts,
+                            attention_mask=attention_mask if batch_size != 1 else None,
+                            decoder_input_ids=responses,
+                            decoder_attention_mask=decoder_attention_mask,
+                            return_dict=True,
+                        ).logits
+                
+                # Compute reference logprobs
+                ref_logprobs = logprobs_of_labels(ref_logits[:, :-1, :], responses[:, 1:])
+                
+                # Compute KL divergence
+                kl_div = (logprobs - ref_logprobs) * decoder_attention_mask[:, :-1]
+            
+            # Apply reward mask to focus on specific tokens
+            token_mask = decoder_attention_mask[:, :-1]
+        else:
+            # For causal models, we concatenate prompts and responses
+            all_tokens = torch.cat((prompts, responses), dim=1)
+            attention_mask = all_tokens.not_equal(self.tokenizer.pad_token_id).long()
+            
+            # Compute position ids for causal attention
+            position_ids = attention_mask.long().cumsum(-1) - 1
+            position_ids.masked_fill_(attention_mask == 0, 1)
+            
+            # Forward pass through model
+            logits, *_, _ = self.model(
+                all_tokens, 
+                attention_mask=attention_mask if batch_size != 1 else None,
+                position_ids=position_ids
+            )
+            
+            # Compute logprobs for next token prediction
+            logprobs = logprobs_of_labels(logits[:, :-1, :], all_tokens[:, 1:])
+            
+            # Compute KL if needed
+            if self.config.method.loss_type == "kl":
+                # Compute logits for reference model
+                with torch.no_grad():
+                    if hasattr(self.model, "frozen_head") or self.model.peft_type:
+                        ref_logits = self.model.forward_hydra(
+                            all_tokens,
+                            attention_mask=attention_mask if batch_size != 1 else None,
+                            position_ids=position_ids,
+                            return_dict=True,
+                        ).logits
+                    else:
+                        ref_logits = self.ref_model(
+                            all_tokens,
+                            attention_mask=attention_mask if batch_size != 1 else None,
+                            position_ids=position_ids,
+                            return_dict=True,
+                        ).logits
+                
+                # Compute reference logprobs
+                ref_logprobs = logprobs_of_labels(ref_logits[:, :-1, :], all_tokens[:, 1:])
+                
+                # Compute KL divergence
+                kl_div = (logprobs - ref_logprobs) * attention_mask[:, :-1]
+            
+            # Start from the end of prompt
+            prompt_length = prompts.shape[1]
+            token_mask = attention_mask[:, prompt_length-1:-1]
+            logprobs = logprobs[:, prompt_length-1:]
+            
+            if self.config.method.loss_type == "kl":
+                kl_div = kl_div[:, prompt_length-1:]
+        
+        # Compute rewards per token if needed
+        if rewards.shape[1] == 1:
+            # If we have a single reward per sequence, assign it to the last token
+            per_token_rewards = torch.zeros_like(logprobs)
+            for i in range(batch_size):
+                # Find the last non-padding token
+                last_token = token_mask[i].sum() - 1
+                if last_token >= 0:
+                    per_token_rewards[i, last_token] = rewards[i, 0]
+        else:
+            # If we have per-token rewards, use them directly
+            per_token_rewards = rewards[:, :logprobs.shape[1]]
+            # Ensure reward mask matches token mask
+            token_mask = token_mask & rewards_mask[:, :logprobs.shape[1]]
+        
+        # Compute policy gradient loss
+        if self.config.method.loss_type == "pg":
+            # Standard policy gradient loss: -logprob * reward
+            pg_loss = -logprobs * per_token_rewards
+            pg_loss = (pg_loss * token_mask).sum() / token_mask.sum().clamp(min=1)
+            loss = pg_loss
+            stats = {
+                "policy/loss": pg_loss.item(),
+                "policy/entropy": (-logprobs * token_mask).sum().item() / token_mask.sum().clamp(min=1),
+            }
+        else:  # kl loss
+            # KL-regularized policy gradient
+            kl_loss = (kl_div * token_mask).sum() / token_mask.sum().clamp(min=1)
+            reward_term = (-logprobs * per_token_rewards * token_mask).sum() / token_mask.sum().clamp(min=1)
+            loss = kl_loss + reward_term
+            stats = {
+                "policy/loss": loss.item(),
+                "policy/kl_loss": kl_loss.item(),
+                "policy/reward_term": reward_term.item(),
+                "policy/entropy": (-logprobs * token_mask).sum().item() / token_mask.sum().clamp(min=1),
+            }
+        
+        # Add reward statistics
+        masked_rewards = (per_token_rewards * token_mask).sum(dim=1) / token_mask.sum(dim=1).clamp(min=1)
+        stats["rewards/mean"] = masked_rewards.mean().item()
+        stats["rewards/std"] = masked_rewards.std().item()
+        stats["rewards/max"] = masked_rewards.max().item()
+        
+        return loss, stats
+
+    def step(self, iter_count: int):
+        """
+        Perform a single training step with GRPO.
+        
+        Args:
+            iter_count: Current iteration count
+            
+        Returns:
+            Dictionary of training statistics
+        """
+        if not hasattr(self, 'grpo_batch_data') or not self.grpo_batch_data:
+            # If we don't have batch data, generate new experiences
+            self.make_experience(self.config.train.batch_size, iter_count)
+        
+        stats = {}
+        clock = Clock()
+        
+        # Process each batch
+        for batch_idx, batch in enumerate(self.grpo_batch_data):
+            # Compute loss and backward pass
+            self.optimizer.zero_grad()
+            
+            loss, batch_stats = self.compute_loss(batch)
+            
+            # Update stats with batch stats
+            for k, v in batch_stats.items():
+                if k not in stats:
+                    stats[k] = v
+                else:
+                    stats[k] += v
+            
+            # Backward pass and optimization
+            self.accelerator.backward(loss)
+            
+            if self.config.optimizer.clip_grad:
+                norm = self.accelerator.clip_grad_norm_(
+                    self.model.parameters(), 
+                    self.config.optimizer.clip_grad
+                )
+                stats["policy/grad_norm"] = norm.item()
+            
+            self.optimizer.step()
+            
+            # Step the scheduler if needed
+            if self.scheduler is not None:
+                self.scheduler.step()
+        
+        # Average stats across batches
+        for k in list(stats.keys()):
+            if k not in ["policy/grad_norm"]:
+                stats[k] /= len(self.grpo_batch_data)
+        
+        # Clear batch data after processing
+        self.grpo_batch_data = []
+        
+        # Add timing stats
+        stats["time/step"] = clock.tick()
+        
+        return stats
+
+    def evaluate(self):
+        """Evaluate the model on the evaluation prompts"""
         logger.info("Evaluating model")
-
-        # Do multiple evaluations over a single list in `gen_kwargs` if present
+        
+        # Handle sweep of generation parameters if configured
         if self.generate_sweep_kwarg is not None:
             gen_sweep_arg, gen_sweep_values = self.generate_sweep_kwarg
         else:
@@ -691,9 +830,12 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
             all_prompts = []
             all_prompt_sizes = []
             all_metadata = []
+            
             generate_time = time()
             for i_prompt, prompts in enumerate(self.eval_dataloader):
                 metadata = {k: v for k, v in prompts.items() if k != "input_ids" and k != "attention_mask"}
+                
+                # Generate samples
                 if self.generate_sweep_kwarg:
                     samples = self.generate_eval(
                         prompts["input_ids"], prompts["attention_mask"], **{gen_sweep_arg: gen_sweep_value}
@@ -701,11 +843,11 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
                 else:
                     samples = self.generate_eval(prompts["input_ids"], prompts["attention_mask"])
 
-                # TODO(reciprocated): this should be moved into `decode`
-                # but that needs to be synced with indexing in `make_experience`
+                # For seq2seq models, remove the first token
                 if self.config.model.model_arch_type == "seq2seq":
                     samples = samples[:, 1:].contiguous()
 
+                # Gather samples and prompts
                 prompt_sizes = torch.tensor(prompts.input_ids.shape[1]).repeat(len(prompts.input_ids))
                 prompts, samples, prompt_sizes = self.accelerator.gather_for_metrics(
                     self.accelerator.pad_across_processes(
@@ -714,6 +856,7 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
                         pad_index=self.tokenizer.pad_token_id,
                     )
                 )
+                
                 all_samples.extend(samples.tolist())
                 all_prompts.extend(prompts.tolist())
                 all_prompt_sizes.extend(prompt_sizes.tolist())
@@ -721,6 +864,7 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
                 metadata = gather_dict(metadata, self.accelerator.gradient_state)
                 all_metadata.append(metadata)
 
+                # Update progress bar
                 desc = [
                     f"generation sweep {i_sweep + 1}/{len(gen_sweep_values)}",
                     f"eval batch {i_prompt + 1}/{len(self.eval_dataloader)}",
@@ -732,15 +876,18 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
             stats["time/generate"] = time() - generate_time
 
             if self.accelerator.is_main_process:
+                # Decode the generated samples
                 str_all_samples, str_all_prompts, str_all_outputs = self.decode(all_prompts, all_samples, all_prompt_sizes)
                 
-                # NOTE: make batch otherwise cannot evaluate on a large test set
+                # Process in batches to handle large evaluation sets
                 eval_batch_size = self.config.train.batch_size
                 for eval_batch_i in range(int(np.floor(len(str_all_samples) / eval_batch_size)) + 1):
+                    # Get current batch
                     str_samples = str_all_samples[eval_batch_i*eval_batch_size:(eval_batch_i+1)*eval_batch_size]
                     str_prompts = str_all_prompts[eval_batch_i*eval_batch_size:(eval_batch_i+1)*eval_batch_size]
                     str_outputs = str_all_outputs[eval_batch_i*eval_batch_size:(eval_batch_i+1)*eval_batch_size]
 
+                    # Apply human attacker templates if configured
                     if hasattr(self.config.model, "human_attacker_template_pool") and self.config.model.human_attacker_template_pool is not None:
                         attacker_template_pool = self.config.model.human_attacker_template_pool.split("\n")
                         attacker_template_pool = [v for v in attacker_template_pool if len(v) > 0]
@@ -754,16 +901,18 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
                             str_outputs_new.append(str_out)
                         str_outputs = str_outputs_new
 
+                    # Set up columns for the results table
                     if eval_batch_i == 0:
                         columns = ["attacker prompt", "attacker output (victim prompt)"]
                     columns_data = [str_prompts, str_outputs]
 
+                    # Collect metadata
                     metadata, *xs = all_metadata
                     for k in metadata:
                         for x in xs:
                             metadata[k].extend(x[k])
 
-                    # in online setting, compute the reward for validation
+                    # Compute rewards if reward function is available
                     if self.reward_fn:
                         logger.info("Computing rewards")                   
                         rewards, victim_str_outputs = self.reward_fn(
@@ -773,7 +922,8 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
                                 return_texts=True,
                                 **metadata)
 
-                        self.eval_text_logger.log( # TODO: not sure why the iter_count gets reset at every eval batch
+                        # Log evaluation results
+                        self.eval_text_logger.log(
                             str_prompts,
                             str_outputs,
                             victim_str_outputs,
@@ -785,34 +935,36 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
                             dtype=float,
                         )
 
+                        # Add victim outputs to columns
                         if eval_batch_i == 0:
                             columns.append("victim output")
                         columns_data.append([victim_str_output \
                                             for str_prompt, str_output, victim_str_output in 
                                                 zip(str_prompts, str_outputs, victim_str_outputs)])
                     
+                        # Add rewards to stats and columns
                         mean_reward = rewards.mean().item()
                         if eval_batch_i == 0:
                             columns.append("reward")
                         if not isinstance(rewards, list):
                             rewards = rewards.tolist()
                         columns_data.append(rewards)
-                        stats[f"reward/mean{sweep_suffix}"] = mean_reward # TODO: only get the last one
-                        # stats[f"reward/train/mean/{sweep_suffix}"] = np.mean(self.history_scores)
-
-                    # additionally log any other metrics
+                        stats[f"reward/mean{sweep_suffix}"] = mean_reward
+                    
+                    # Compute additional metrics if metric function is available
                     if self.metric_fn:
                         logger.info("Computing metrics")
                         metric_time = time()
                         metrics = self.metric_fn(samples=str_samples, prompts=str_prompts, outputs=str_outputs, **metadata)
                         stats["time/metric"] = time() - metric_time
 
+                        # Add metrics to stats
                         mean_metrics = {
                             f"metrics/{k}{sweep_suffix}": torch.as_tensor(xs).mean(-1).item() for k, xs in metrics.items()
                         }
-
                         stats.update(mean_metrics)
 
+                        # Add metrics to columns
                         for metric, values in metrics.items():
                             # Skip metrics that are scalers since they represent aggregated values
                             if isinstance(values, float):
@@ -822,16 +974,18 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
                                 values = values.tolist()
                             columns_data.append(values)
 
-                    # Prepend the sweep argument along with samples
+                    # Add generation sweep parameter if configured
                     if self.generate_sweep_kwarg:
                         columns.insert(0, gen_sweep_arg)
-                        columns_data.insert(0, [gen_sweep_value] * len(samples))
+                        columns_data.insert(0, [gen_sweep_value] * len(str_samples))
 
+                    # Add this batch to the results table
                     table.append(list(zip(*columns_data)))
 
         # Log and display evaluation metrics
         logger.info("Summarizing evaluation")
         if self.accelerator.is_main_process:
+            # Flatten table rows
             rows = sum(list(map(list, zip(*table))), [])
 
             # Add metrics/rewards to the table's title
@@ -840,14 +994,15 @@ class AccelerateRedteamPPOTrainer(AcceleratePPOTrainer):
                 if k.startswith("reward") or k.startswith("metrics"):
                     table_title += f" {k}: {significant(x)}"
 
+            # Create and display the results table
             rich_table = Table(*columns, title=table_title, show_lines=True)
             for ix in range(max(min(3, len(rows)), len(gen_sweep_values))):
                 rich_table.add_row(*[str(significant(x)) for x in rows[ix]])
             Console().print(rich_table)
 
+            # Log to wandb if configured
             if self.config.train.tracker == "wandb":
                 import wandb
-
                 stats["samples"] = wandb.Table(columns, rows)
 
         self.nth_evaluation += 1

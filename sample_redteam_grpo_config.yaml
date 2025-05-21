@@ -1,0 +1,66 @@
+model:
+  model_path: "gpt2"  # Replace with your model path
+  model_arch_type: "causal"
+  tokenizer_path: "gpt2"  # Replace with your tokenizer path
+  num_layers_unfrozen: -1
+
+train:
+  seq_length: 1024
+  epochs: 10
+  total_steps: 1000
+  batch_size: 8
+  checkpoint_interval: 100
+  eval_interval: 100
+  pipeline: "PromptPipeline"
+  trainer: "AccelerateRedteamGRPOTrainer"
+  tracker: "wandb"
+
+method:
+  name: "RedteamGRPOConfig"
+  # GRPO specific parameters
+  num_generations: 4
+  temperature: 1.0
+  top_p: 1.0
+  loss_type: "kl"  # "kl" or "pg"
+  
+  # Reward coefficients
+  bleu_reward_coef: -0.5
+  bleu_reward_grams: "[3, 4, 5]"
+  bleu_reward_include_prompts: false
+  bleu_tokenizer: "nltk"
+  bleu_n_samples: -1
+  
+  ent_reward_coef: 0.0
+  cossimemb_reward_coef: 0.0
+  cossimemb_n_samples: -1
+  cossimemb_impl: "huggingface"
+  cossimemb_reward_include_prompts: true
+  cossimemb_model_device: "default"
+  
+  textual_sim_reward_coef: 0.0
+  textual_sim_reward_include_prompts: false
+  
+  target_sim_div_reward_coef: 0.0
+  
+  giberish_penalty_coef: 0.0
+  giberish_model_device: "default"
+  
+  reward_model_device_offset: 0
+
+optimizer:
+  name: "adamw"
+  kwargs:
+    lr: 5.0e-5
+    betas: [0.9, 0.95]
+    eps: 1.0e-8
+    weight_decay: 1.0e-6
+  
+scheduler:
+  name: "cosine_annealing"
+  kwargs:
+    T_max: 1000
+    eta_min: 5.0e-6
+
+tokenizer:
+  padding_side: "left"
+  truncation_side: "right" 

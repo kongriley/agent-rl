@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH -p vision-pulkitag-h100,vision-pulkitag-a100,vision-pulkitag-a6000       # specify the partition
-#SBATCH -q vision-pulkitag-debug         # specify the QoS
-#SBATCH -t 2:00:00                   # job time
-#SBATCH -n 1                       # number of tasks
-#SBATCH --gres=gpu:2                  # request GPU resource
+#SBATCH -p vision-pulkitag-h100        # specify the partition
+#SBATCH -q vision-pulkitag-free-cycles        # specify the QoS (free cycles)
+#SBATCH -t 2-00:00:00                   # job time
+#SBATCH -n 1                            # number of tasks
+#SBATCH --gres=gpu:2                    # request GPU resource
 #SBATCH --mem=200G
 #SBATCH --output=out/%x.%j.out
 
