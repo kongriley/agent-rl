@@ -7,16 +7,17 @@
 #SBATCH --mem=200G
 #SBATCH --output=out/%x.%j.out
 
-export HOME=/data/scratch/rileyis
+if [ -n "$SLURM_JOB_ID" ]; then
+    export HOME=/data/scratch/rileyis
 
-# Source your bashrc
-source /data/scratch/rileyis/.bashrc
+    # Source your bashrc
+    source /data/scratch/rileyis/.bashrc
 
-# Activate your conda environment
-mamba activate agent-rl-new
+    # Activate your conda environment
+    mamba activate agent-rl-new
 
-# Navigate to your project directory
-cd /data/scratch/rileyis/agent-rl/
+    # Navigate to your project directory
+    cd /data/scratch/rileyis/agent-rl/
 
 PORT=8000
 

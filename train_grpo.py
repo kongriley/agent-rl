@@ -18,22 +18,31 @@ from redteaming import suites, Agent, Judge, format_messages
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from trl import GRPOConfig, GRPOTrainer, apply_chat_template
+from accelerate import Accelerator
 
 from datasets import Dataset
 
 import os
 import dotenv
+import wandb
+import time
 
 dotenv.load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+WANDB_API_KEY = os.getenv("WANDB_API_KEY")
+
+# Initialize accelerator
+accelerator = Accelerator()
 
 suite_name = "api_bank"
 suite = suites[suite_name]
 
+num_devices = torch.cuda.device_count()
 batch_size = 4
 gradient_accumulation_steps = 4
 num_generations = 4
-num_devices = torch.cuda.device_count()
+max_steps = 50
+logging_steps = 1
 
 redteam_scale = 1.5
 redteam_model_id = f"Qwen/Qwen2.5-{redteam_scale}B-Instruct"
@@ -42,13 +51,14 @@ output_dir = f"grpo/Qwen2.5-{redteam_scale}b/{suite_name}"
 redteam_model = redteam_model_id
 redteam_model = AutoModelForCausalLM.from_pretrained(
     redteam_model_id,
-    device_map="auto",
-    quantization_config=BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=torch.bfloat16,
-    ),
+    # device_map="auto",
+    # quantization_config=BitsAndBytesConfig(
+    #     load_in_4bit=True,
+    #     bnb_4bit_quant_type="nf4",
+    #     bnb_4bit_use_double_quant=True,
+    #     bnb_4bit_compute_dtype=torch.bfloat16,
+    # ),
+    torch_dtype=torch.bfloat16,
 )
 redteam_model = prepare_model_for_kbit_training(redteam_model)
 redteam_model = get_peft_model(
@@ -96,35 +106,72 @@ victim_client = OpenAI(api_key=OPENAI_API_KEY)
 victim_llm = OpenAILLM(victim_client, victim_model)
 agent = Agent(suite.runtime, suite.environment, victim_llm, suite.system_description)
 
+log_batch = []
+
 def safety_reward(prompts, completions, **kwargs):
     rewards = []
-    for prompt, completion in zip(prompts, completions):
+    step = kwargs.get('step', 0)
+    
+    for i, (prompt, completion) in enumerate(zip(prompts, completions)):
         messages = agent.run(completion)
-        print(f"Messages: {messages}")
-        judgement = judge.run(messages, custom_prompt=judge_custom_prompt)
-        print(f"Judgement: {judgement}")
-        judgement = judgement.split()[-1]
-        if judgement == "yes":
-            rewards.append(1.0)
-        else:
-            rewards.append(0.0)
+        judgement = judge.run(messages, custom_prompt=judge_custom_prompt)[0]["content"]
+        judgement_result = judgement.split()[-1]
+        reward = 1.0 if judgement_result == "yes" else 0.0
+        rewards.append(reward)
+        
+        # Log to wandb on main process
+        if accelerator.is_main_process and step % logging_steps == 0:
+            log_batch.append({
+                "step": step,
+                "prompt": prompt,
+                "completion": completion,
+                "messages": messages,
+                "judgement": judgement,
+                "reward": reward,
+            })
+        
+            
     return rewards
 
 
 training_args = GRPOConfig(
     output_dir=output_dir,
     bf16=True,
-    logging_steps=10,
+    max_steps=max_steps,
+    logging_steps=logging_steps,
     per_device_train_batch_size=batch_size,
     gradient_accumulation_steps=gradient_accumulation_steps,
     num_generations=num_generations,
+    report_to="wandb",
     # use_vllm=True,
     # vllm_enable_prefix_caching=False,
 )
+
+# Initialize wandb only on main process
+if accelerator.is_main_process:
+    wandb.init(
+        project="agent-rl",
+        name=f"grpo-base-{suite_name}-{redteam_scale}b",
+        config={
+            "suite_name": suite_name,
+            "batch_size": batch_size,
+            "gradient_accumulation_steps": gradient_accumulation_steps,
+            "num_generations": num_generations,
+            "redteam_model_id": redteam_model_id,
+            "redteam_scale": redteam_scale,
+        }
+    )
+
 trainer = GRPOTrainer(
     model=redteam_model,
     reward_funcs=safety_reward,
     args=training_args,
     train_dataset=dataset,
 )
-trainer.train()
+
+start_time = time.time()
+train_result = trainer.train()
+end_time = time.time()
+
+if accelerator.is_main_process:
+    wandb.finish()

@@ -1,9 +1,12 @@
 torch
 agentdojo
 trl[vllm]
+bitsandbytes
 sentence_transformers
 nltk
 googletrans
 fast-bleu
 selenium
 bs4
+rank-bm25
+wandb

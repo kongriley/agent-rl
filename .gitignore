@@ -20,3 +20,5 @@ wheels/
 nltk_data/
 
 results/**/log*
+grpo/*
+wandb
